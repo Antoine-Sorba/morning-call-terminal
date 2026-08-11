@@ -36,7 +36,7 @@ from ficc_terminal.widgets import (
 load_dotenv()
 
 st.set_page_config(
-    page_title="FICC Overnight Brief",
+    page_title="Global Markets Morning Brief",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -73,7 +73,8 @@ def get_client() -> OfficialHttpClient:
 
 
 @st.cache_resource
-def get_store() -> JournalStore:
+def get_journal_store_v2(schema_version: int) -> JournalStore:
+    del schema_version
     return JournalStore("data/ficc_terminal.db")
 
 
@@ -145,10 +146,14 @@ def event_label(row: pd.Series) -> str:
     )
 
 
+def field_text(value: object) -> str:
+    return "" if value is None or pd.isna(value) else str(value)
+
+
 def render_event(row: pd.Series, number: int) -> None:
     with st.container(border=True):
         st.markdown(f'<div class="event-number">Event {number} · {row["event_type"]}</div>', unsafe_allow_html=True)
-        st.markdown(f"#### {row['title']}")
+        st.markdown(f"#### {row['display_title']}")
         st.caption(event_label(row))
         tags = " · ".join(row["asset_classes"])
         st.markdown(f"**{tags}**")
@@ -174,7 +179,7 @@ def metadata_health(datasets: dict[str, MarketDataset]) -> pd.DataFrame:
 
 
 with st.sidebar:
-    st.markdown("## FICC Overnight Brief")
+    st.markdown("## Global Markets Morning Brief")
     st.caption("Cross-asset market journal")
     page = st.radio(
         "Navigation",
@@ -193,7 +198,7 @@ with st.spinner("Building the source-linked overnight brief…"):
     datasets = load_datasets()
     events = load_overnight_events()
 snapshot = build_snapshot(datasets.values())
-store = get_store()
+store = get_journal_store_v2(2)
 
 
 if page == "Overnight brief":
@@ -201,7 +206,7 @@ if page == "Overnight brief":
         """
         <div class="hero">
           <div class="hero-kicker">London morning</div>
-          <div class="hero-title">Overnight market brief</div>
+          <div class="hero-title">Global Markets Morning Brief</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -283,8 +288,8 @@ elif page == "Essential charts":
         focus_assets: list[str] = []
         st.info("No qualifying free-access event was found. Use the fixed routine without assigning a cause.")
     else:
-        focus_title = st.selectbox("Event to investigate", events["title"].tolist())
-        focus_event = events.loc[events["title"] == focus_title].iloc[0]
+        focus_title = st.selectbox("Event to investigate", events["display_title"].tolist())
+        focus_event = events.loc[events["display_title"] == focus_title].iloc[0]
         focus_assets = list(focus_event["asset_classes"])
         st.caption(f"{focus_event['publisher']} · {', '.join(focus_assets)}")
         st.link_button("Open today's free source", focus_event["url"])
@@ -296,14 +301,11 @@ elif page == "Essential charts":
     )
     question_column, angle_column = st.columns(2)
     with question_column:
-        st.markdown("#### Ask yourself today")
-        for question in focus["questions"]:
-            st.markdown(f"- {question}")
+        st.markdown("#### Main market check")
+        st.write(focus["watch"])
     with angle_column:
-        st.markdown("#### Possible FICC pitch angles")
-        st.caption("Prompts to investigate—not trade recommendations.")
-        for angle in focus["pitch_angles"]:
-            st.markdown(f"- {angle}")
+        st.markdown("#### FICC angle")
+        st.write(focus["pitch_angle"])
 
     st.markdown("### Primary sources to confirm the story")
     source_links = {
@@ -346,10 +348,10 @@ elif page == "Today's trade pitch":
         unsafe_allow_html=True,
     )
 
-    event_options = ["No linked event"] + events["title"].tolist() if not events.empty else ["No linked event"]
+    event_options = ["No linked event"] + events["display_title"].tolist() if not events.empty else ["No linked event"]
     linked_event = st.selectbox("Related overnight event", event_options)
     if linked_event != "No linked event":
-        event_row = events.loc[events["title"] == linked_event].iloc[0]
+        event_row = events.loc[events["display_title"] == linked_event].iloc[0]
         st.caption(f"{event_row['publisher']} · {', '.join(event_row['asset_classes'])}")
         st.link_button("Open source", event_row["url"])
 
@@ -460,20 +462,96 @@ elif page == "Journal":
         )
         selected = pitches.loc[pitches["id"] == pitch_id].iloc[0]
 
+        if st.session_state.pop("pitch_edit_saved", False):
+            st.success("Pitch updated.")
+
+        with st.expander("Edit pitch"):
+            with st.form(f"edit_pitch_{pitch_id}"):
+                edit_date = st.date_input(
+                    "Pitch date",
+                    value=pd.to_datetime(selected["pitch_date"]).date(),
+                )
+                edit_left, edit_middle, edit_right = st.columns(3)
+                with edit_left:
+                    edit_trade = st.text_input("Trade name", value=field_text(selected["trade"]))
+                with edit_middle:
+                    edit_product = st.text_input("Asset class / product", value=field_text(selected["product"]))
+                with edit_right:
+                    edit_client = st.text_input("Client / audience", value=field_text(selected["client"]))
+                edit_view = st.text_area("Thesis", value=field_text(selected["market_view"]), height=100)
+                edit_instrument = st.text_area(
+                    "Direction and instrument",
+                    value=field_text(selected["instrument"]),
+                    height=85,
+                )
+                edit_catalyst = st.text_area("Catalyst", value=field_text(selected["catalyst"]), height=80)
+                edit_level, edit_target_column, edit_stop, edit_horizon = st.columns(4)
+                with edit_level:
+                    edit_entry = st.text_input("Entry level", value=field_text(selected["entry_level"]))
+                with edit_target_column:
+                    edit_target = st.text_input("Target", value=field_text(selected["target"]))
+                with edit_stop:
+                    edit_invalidation = st.text_input(
+                        "Stop / invalidation",
+                        value=field_text(selected["invalidation"]),
+                    )
+                with edit_horizon:
+                    edit_time_horizon = st.text_input(
+                        "Time horizon",
+                        value=field_text(selected["time_horizon"]),
+                    )
+                edit_risk = st.text_area("Main risks", value=field_text(selected["main_risk"]), height=80)
+                edit_relevance = st.text_area(
+                    "Client relevance",
+                    value=field_text(selected["client_relevance"]),
+                    height=80,
+                )
+                edit_question = st.text_input(
+                    "Client question",
+                    value=field_text(selected["closing_question"]),
+                )
+                edit_submitted = st.form_submit_button("Save changes")
+            if edit_submitted:
+                if not edit_trade.strip() or not edit_view.strip() or not edit_instrument.strip():
+                    st.warning("Complete the trade name, thesis, and direction/instrument before saving.")
+                else:
+                    store.update_pitch(
+                        int(pitch_id),
+                        {
+                            "client": edit_client,
+                            "client_problem": "",
+                            "trade": edit_trade,
+                            "product": edit_product,
+                            "market_view": edit_view,
+                            "instrument": edit_instrument,
+                            "entry_level": edit_entry,
+                            "target": edit_target,
+                            "invalidation": edit_invalidation,
+                            "time_horizon": edit_time_horizon,
+                            "catalyst": edit_catalyst,
+                            "main_risk": edit_risk,
+                            "client_relevance": edit_relevance,
+                            "closing_question": edit_question,
+                        },
+                        str(edit_date),
+                    )
+                    st.session_state["pitch_edit_saved"] = True
+                    st.rerun()
+
         with st.expander("Original pitch", expanded=True):
             detail_rows = [
                 ("Date", selected["pitch_date"]),
                 ("Trade", selected["trade"]),
-                ("Product", selected.get("product") or "—"),
-                ("Client", selected.get("client") or "—"),
-                ("Thesis", selected.get("market_view") or "—"),
-                ("Direction / instrument", selected.get("instrument") or "—"),
-                ("Catalyst", selected.get("catalyst") or "—"),
-                ("Entry", selected.get("entry_level") or "—"),
-                ("Target", selected.get("target") or "—"),
-                ("Stop / invalidation", selected.get("invalidation") or "—"),
-                ("Horizon", selected.get("time_horizon") or "—"),
-                ("Main risk", selected.get("main_risk") or "—"),
+                ("Product", field_text(selected.get("product")) or "—"),
+                ("Client", field_text(selected.get("client")) or "—"),
+                ("Thesis", field_text(selected.get("market_view")) or "—"),
+                ("Direction / instrument", field_text(selected.get("instrument")) or "—"),
+                ("Catalyst", field_text(selected.get("catalyst")) or "—"),
+                ("Entry", field_text(selected.get("entry_level")) or "—"),
+                ("Target", field_text(selected.get("target")) or "—"),
+                ("Stop / invalidation", field_text(selected.get("invalidation")) or "—"),
+                ("Horizon", field_text(selected.get("time_horizon")) or "—"),
+                ("Main risk", field_text(selected.get("main_risk")) or "—"),
             ]
             st.dataframe(
                 pd.DataFrame(detail_rows, columns=["Field", "Value"]),
@@ -585,10 +663,10 @@ else:
     st.markdown("### How the overnight events are selected")
     st.markdown(
         """
-        - **Official feeds:** Federal Reserve, ECB and Bank of England releases are collected directly.
+        - **Official feeds:** Federal Reserve, ECB, Bank of England and Reserve Bank of Australia releases are collected directly.
         - **News discovery:** targeted Google News RSS searches identify potentially market-moving world events and display the named publisher and source link.
         - **Free-access policy:** paywalled publishers are excluded. Events come from official feeds or a conservative list of publishers normally readable without a subscription; access can still vary by country.
-        - **Ranking:** recency, affected asset classes, high-impact language and headline evidence determine priority.
+        - **Ranking:** recency, market impact and cross-asset relevance determine priority; similar headlines about one underlying story are grouped together.
         - **No invented causality:** publication time and market charts must be checked before linking an event to a move.
         - **Copyright discipline:** only the headline, publisher and link are displayed; articles are not reproduced.
         """
@@ -622,6 +700,6 @@ else:
 
 st.markdown("---")
 st.caption(
-    f"FICC Overnight Brief · Refreshed {datetime.now(ZoneInfo('Europe/London')).strftime('%d %b %Y %H:%M London')} · "
+    f"Global Markets Morning Brief · Refreshed {datetime.now(ZoneInfo('Europe/London')).strftime('%d %b %Y %H:%M London')} · "
     "Facts must be verified before publication · Not investment advice"
 )
