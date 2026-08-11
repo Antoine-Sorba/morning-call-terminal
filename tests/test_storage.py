@@ -100,3 +100,29 @@ def test_saved_pitch_can_be_edited_without_losing_updates(tmp_path) -> None:
     assert saved["trade"] == "Pay US 10Y swap"
     assert saved["target"] == "4.45%"
     assert len(store.list_pitch_updates(pitch_id)) == 1
+
+
+def test_two_store_instances_can_write_without_locking(tmp_path) -> None:
+    database = tmp_path / "journal.db"
+    first = JournalStore(database)
+    second = JournalStore(database)
+    pitch_id = first.save_pitch(
+        {
+            "client": "Asset manager",
+            "trade": "Receive front-end rates",
+            "market_view": "Policy expectations are too restrictive.",
+            "instrument": "Receive two-year swaps.",
+        },
+        "2026-08-11",
+    )
+    second.add_pitch_update(
+        pitch_id,
+        update_date="2026-08-12",
+        current_level="3.90%",
+        performance="+2 bp",
+        status="Monitoring",
+        comment="The position remains open.",
+    )
+    assert len(first.list_pitch_updates(pitch_id)) == 1
+    first.close()
+    second.close()
