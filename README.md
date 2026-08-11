@@ -1,4 +1,4 @@
-# FICC Morning Call & Trade-Idea Terminal
+# Global Markets Morning Brief
 
 A qualitative-first Python/Streamlit project built for practising the daily work of a FICC salesperson:
 
@@ -11,24 +11,24 @@ The application is deliberately **official-source first**. It does not pretend t
 
 ## What the application prioritises
 
-- A maximum of five source-linked overnight events instead of an indiscriminate news feed.
+- Five distinct market stories, with duplicate coverage of the same underlying event grouped together.
 - Events from official or known free-access publishers, with paywalled publishers excluded on a best-effort basis.
 - The affected asset classes and a direct source link.
 - One TradingView-hosted advanced chart with a permanent short watchlist for rates, FX, credit proxies, commodities and equities.
 - The exact TradingView instrument names and symbols to check in the same order every day.
-- Questions and possible FICC pitch angles that change with the selected overnight event.
+- One concise market check and one possible FICC angle for the selected event.
 - Auditable official closing/reference data from Treasury, New York Fed, ECB, EIA and BLS.
 - A blank morning-call workspace so the final wording and reasoning remain the user's own.
 - Fully manual FICC pitch entry with no pre-filled trade or recommendation.
-- A SQLite journal with dated performance updates and final post-trade reviews.
+- An editable SQLite journal with dated performance updates and final post-trade reviews.
 - Raw-response caching, stale-data flags and an auditable source register.
 
 The navigation is deliberately short:
 
 1. **Overnight brief** — what happened, which market to check and the original source.
-2. **Essential charts** — a fixed TradingView routine plus questions tailored to today's event.
+2. **Essential charts** — a fixed TradingView routine plus one key check tailored to today's event.
 3. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
-4. **Journal** — monitor each saved pitch through dated market and performance updates.
+4. **Journal** — edit saved pitches and monitor them through dated market and performance updates.
 5. **Sources** — audit data health, methodology and reuse constraints.
 
 ## Why the architecture is hybrid
@@ -38,7 +38,7 @@ Official institutions provide reliable curves, reference rates, macroeconomic da
 The project therefore uses:
 
 - **Python-controlled official data:** Treasury, New York Fed, ECB, Bank of England, EIA, CFTC and BLS.
-- **Official announcement feeds:** Federal Reserve, ECB and Bank of England RSS.
+- **Official announcement feeds:** Federal Reserve, ECB, Bank of England and Reserve Bank of Australia RSS.
 - **News discovery:** targeted Google News RSS searches, limited to headlines, named free-access publishers and source links. Discovery is not treated as proof of causality.
 - **Provider-hosted widgets:** current/delayed rates, FX, credit proxies, commodities and equity context, with TradingView attribution retained.
 - **Human judgement:** the final explanation, opinion and FICC pitch.
@@ -85,7 +85,7 @@ Remember that UK daylight-saving time affects UTC-based schedulers.
 pytest -q
 ```
 
-The tests cover official-response parsing, free-source news filtering, event-tailored questions, market calculations and the SQLite journal.
+The tests cover official-response parsing, free-source news filtering, event-tailored market checks, market calculations and the SQLite journal.
 
 ## Deploy
 
@@ -101,7 +101,7 @@ For a public site, recheck each institution's current terms and do not add a dat
 
 ## Daily workflow
 
-- **5 minutes:** read the three-to-five ranked events and open the important source links.
+- **5 minutes:** read the five distinct ranked events and open the important source links.
 - **5 minutes:** check the same exact TradingView symbols and verify the event timing and cross-asset confirmation.
 - **5 minutes:** write the blank 60-second call in your own words.
 - **10 minutes:** write one original FICC pitch with an entry, target, invalidation and time horizon.
@@ -127,7 +127,7 @@ tests/                              Offline source, news, analytics and journal 
 
 ## Suggested CV wording after you have used it consistently
 
-**FICC Morning Call & Trade-Idea Terminal — Independent Python Project**
+**Global Markets Morning Brief — Independent Python Project**
 
 - Developed a Python/Streamlit cross-asset dashboard using official Treasury, central-bank and government data, with raw-response caching, stale-data controls and transparent source attribution.
 - Translated rates, FX, credit, commodities and equity-risk developments into concise morning commentary and client-specific FICC trade and hedging discussions.
