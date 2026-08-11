@@ -96,9 +96,10 @@ def get_client() -> OfficialHttpClient:
     return OfficialHttpClient(cache_dir=Path("data/raw"), timeout=15)
 
 
-JOURNAL_SCHEMA_VERSION = 6
+JOURNAL_SCHEMA_VERSION = 7
 REQUIRED_JOURNAL_METHODS = (
     "add_pitch_update",
+    "delete_pitch",
     "list_pitch_updates",
     "list_morning_calls",
     "review_pitch",
@@ -108,7 +109,7 @@ REQUIRED_JOURNAL_METHODS = (
 
 
 @st.cache_resource
-def get_journal_store_v6(
+def get_journal_store_v7(
     schema_version: int,
     database_url: str,
 ) -> JournalStore | PostgresJournalStore:
@@ -138,13 +139,13 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
     """
 
     database_url = configured_database_url()
-    journal = get_journal_store_v6(JOURNAL_SCHEMA_VERSION, database_url)
+    journal = get_journal_store_v7(JOURNAL_SCHEMA_VERSION, database_url)
     if all(hasattr(journal, method) for method in REQUIRED_JOURNAL_METHODS):
         return journal
     if hasattr(journal, "close"):
         journal.close()
-    get_journal_store_v6.clear()
-    journal = get_journal_store_v6(JOURNAL_SCHEMA_VERSION, database_url)
+    get_journal_store_v7.clear()
+    journal = get_journal_store_v7(JOURNAL_SCHEMA_VERSION, database_url)
     missing = [method for method in REQUIRED_JOURNAL_METHODS if not hasattr(journal, method)]
     if missing:
         raise RuntimeError(f"Journal migration incomplete: {', '.join(missing)}")
@@ -797,6 +798,8 @@ elif page == "Journal":
     )
 
     pitches = store.list_pitches()
+    if st.session_state.pop("pitch_deleted", False):
+        st.success("Position and its monitoring history deleted.")
     render_pitch_performance(pitches)
     st.markdown("## Positions")
     if pitches.empty:
@@ -1067,6 +1070,26 @@ elif page == "Journal":
                         )
                         st.session_state["pitch_review_saved"] = True
                         st.rerun()
+
+            with st.expander("Delete this position"):
+                st.warning(
+                    "This permanently removes the position and all of its monitoring "
+                    "updates. This action cannot be undone."
+                )
+                delete_confirmed = st.checkbox(
+                    f"I confirm that I want to delete “{field_text(selected['trade'])}”.",
+                    key=f"confirm_delete_pitch_{pitch_id}",
+                )
+                if st.button(
+                    "Permanently delete position",
+                    disabled=not delete_confirmed,
+                    key=f"delete_pitch_{pitch_id}",
+                ):
+                    if store.delete_pitch(pitch_id):
+                        st.session_state["pitch_deleted"] = True
+                        st.rerun()
+                    else:
+                        st.error("The position could not be found. Refresh the journal and try again.")
 
 
 else:
