@@ -141,12 +141,12 @@ SOURCE_CATALOG = [
     },
     {
         "market": "Equity risk context",
-        "institution": "Index operators / TradingView widgets",
-        "data": "Provider-hosted indices and heatmaps",
+        "institution": "Index operators / TradingView",
+        "data": "Direct links to provider-labelled market charts",
         "frequency": "Provider-labelled",
-        "integration": "Hosted interactive widget",
-        "url": "https://www.tradingview.com/widget-docs/",
-        "reuse": "Keep provider attribution; do not extract and republish widget data.",
+        "integration": "External chart links",
+        "url": "https://www.tradingview.com/markets/",
+        "reuse": "No provider data are extracted or republished by the application.",
     },
 ]
 
