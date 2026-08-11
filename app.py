@@ -72,10 +72,39 @@ def get_client() -> OfficialHttpClient:
     return OfficialHttpClient(cache_dir=Path("data/raw"), timeout=15)
 
 
+JOURNAL_SCHEMA_VERSION = 3
+REQUIRED_JOURNAL_METHODS = (
+    "add_pitch_update",
+    "list_pitch_updates",
+    "update_pitch",
+)
+
+
 @st.cache_resource
-def get_journal_store_v2(schema_version: int) -> JournalStore:
+def get_journal_store_v3(schema_version: int) -> JournalStore:
     del schema_version
     return JournalStore("data/ficc_terminal.db")
+
+
+def load_journal_store() -> JournalStore:
+    """Return a journal object compatible with the current application.
+
+    Streamlit can retain a cached resource while imported class code changes.
+    Validate the object so a deployment recovers from an older JournalStore
+    instead of repeatedly raising AttributeError errors.
+    """
+
+    journal = get_journal_store_v3(JOURNAL_SCHEMA_VERSION)
+    if all(hasattr(journal, method) for method in REQUIRED_JOURNAL_METHODS):
+        return journal
+    if hasattr(journal, "close"):
+        journal.close()
+    get_journal_store_v3.clear()
+    journal = get_journal_store_v3(JOURNAL_SCHEMA_VERSION)
+    missing = [method for method in REQUIRED_JOURNAL_METHODS if not hasattr(journal, method)]
+    if missing:
+        raise RuntimeError(f"Journal migration incomplete: {', '.join(missing)}")
+    return journal
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -198,7 +227,7 @@ with st.spinner("Building the source-linked overnight brief…"):
     datasets = load_datasets()
     events = load_overnight_events()
 snapshot = build_snapshot(datasets.values())
-store = get_journal_store_v2(2)
+store = load_journal_store()
 
 
 if page == "Overnight brief":
