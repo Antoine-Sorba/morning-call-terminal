@@ -19,7 +19,7 @@ The application is deliberately **official-source first**. It does not pretend t
 - One concise market check and one possible FICC angle for the selected event.
 - Auditable official closing/reference data from Treasury, New York Fed, ECB, EIA and BLS.
 - A blank morning-call workspace so the final wording and reasoning remain the user's own.
-- A visitor-facing archive showing the latest written morning call and its date, with earlier calls retained in a dated history.
+- A visitor-facing latest morning call, with earlier calls available one date at a time in an optional archive and editing kept in a collapsed first-page workspace.
 - Fully manual FICC pitch entry with no pre-filled trade or recommendation.
 - An editable trade journal with dated performance updates, final post-trade reviews and optional persistent PostgreSQL storage for hosted deployments.
 - Raw-response caching, stale-data flags and an auditable source register.
@@ -29,7 +29,7 @@ The navigation is deliberately short:
 1. **Overnight brief** — five key events plus a concise 24-hour timeline so an earlier material story remains visible as new headlines arrive.
 2. **Essential charts** — native official-data history, a fixed market routine, direct live-chart links and one key check tailored to today's event.
 3. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
-4. **Journal** — edit saved pitches and monitor them through dated market and performance updates.
+4. **Journal** — edit saved pitches and monitor them through dated market and performance updates; morning calls are managed from the first page.
 5. **Sources** — audit data health, methodology and reuse constraints.
 
 ## Why the architecture is hybrid
