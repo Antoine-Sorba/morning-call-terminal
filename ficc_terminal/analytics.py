@@ -153,19 +153,19 @@ def potential_themes(snapshot: pd.DataFrame) -> list[dict[str, str]]:
                     evidence += f" EUR/USD {eurusd['change']:+.2f}%."
                 themes.append(
                     {
-                        "theme": "Potential hawkish US rates repricing",
-                        "evidence": evidence,
-                        "verification": "Check the latest Fed communication and official US data release before attributing cause.",
+                        "theme": "US government-bond yields rose",
+                        "evidence": evidence + " Higher yields normally mean lower bond prices.",
+                        "verification": "This does not identify the cause. Compare the move's timing with Federal Reserve communication and official US data.",
                     }
                 )
             slope_move = ten_move - two_move
             if abs(slope_move) >= 3:
-                shape = "steepening" if slope_move > 0 else "flattening"
+                shape = "10-year yield moved more" if slope_move > 0 else "2-year yield moved more"
                 themes.append(
                     {
-                        "theme": f"Potential US curve {shape}",
-                        "evidence": f"The 10Y move exceeded the 2Y move by {slope_move:+.0f} bp.",
-                        "verification": "Confirm the curve move against supply, inflation and growth headlines.",
+                        "theme": shape,
+                        "evidence": f"The difference between the 10-year and 2-year daily moves was {slope_move:+.0f} basis points.",
+                        "verification": "Compare the timing with government-bond supply, inflation and growth news before proposing an explanation.",
                     }
                 )
 
