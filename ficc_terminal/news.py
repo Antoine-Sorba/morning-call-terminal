@@ -78,11 +78,29 @@ REACTION_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
-TRUSTED_PUBLISHERS = (
-    "Reuters", "Associated Press", "AP News", "BBC", "Financial Times",
-    "Bloomberg", "CNBC", "Wall Street Journal", "The Guardian", "Nikkei Asia",
-    "MarketWatch", "Yahoo Finance", "Sky News", "The Times", "Politico",
-    "Al Jazeera", "NPR",
+# These publishers are normally readable without a paid subscription. Official
+# central-bank feeds are also accepted below. Access can still vary by country,
+# so this is a conservative, best-effort allowlist rather than a guarantee.
+FREE_ACCESS_PUBLISHERS = (
+    "Reuters",
+    "Associated Press",
+    "AP News",
+    "BBC",
+    "CNBC",
+    "The Guardian",
+    "Yahoo Finance",
+    "Sky News",
+    "Politico",
+    "Al Jazeera",
+    "NPR",
+    "France 24",
+    "Deutsche Welle",
+)
+
+PAYWALL_MARKERS = re.compile(
+    r"\b(Bloomberg|Financial Times|Wall Street Journal|WSJ|Nikkei Asia|"
+    r"MarketWatch|The Times|CNBC Pro|subscription)\b",
+    flags=re.IGNORECASE,
 )
 
 
@@ -243,11 +261,25 @@ def rank_market_events(
         return result
     result["event_type"] = result["title"].map(classify_event)
     result["reaction_stated"] = result["title"].map(lambda value: bool(REACTION_PATTERN.search(value)))
-    result["trusted_source"] = result.apply(
+    result["free_access_source"] = result.apply(
         lambda row: row["source_type"] == "Official"
-        or any(name.lower() in row["publisher"].lower() for name in TRUSTED_PUBLISHERS),
+        or any(
+            name.lower() in row["publisher"].lower()
+            for name in FREE_ACCESS_PUBLISHERS
+        ),
         axis=1,
     )
+    result = result.loc[result["free_access_source"]]
+    result = result.loc[
+        ~result.apply(
+            lambda row: bool(
+                PAYWALL_MARKERS.search(f"{row['publisher']} {row['title']}")
+            ),
+            axis=1,
+        )
+    ]
+    if result.empty:
+        return result
 
     def score(row: pd.Series) -> float:
         title = row["title"].lower()
@@ -257,18 +289,12 @@ def rank_market_events(
         breadth = min(len(row["asset_classes"]), 3) * 1.0
         reaction = 3.0 if row["reaction_stated"] else 0.0
         official = 1.5 if row["source_type"] == "Official" else 0.0
-        trusted = 2.5 if row["trusted_source"] else -1.0
-        return round(recency + impact + breadth + reaction + official + trusted, 2)
+        free_source = 2.5 if row["free_access_source"] else -1.0
+        return round(recency + impact + breadth + reaction + official + free_source, 2)
 
     result["importance"] = result.apply(score, axis=1)
     result["market_relevance"] = result["asset_classes"].map(_market_relevance)
-    result["evidence_label"] = result["reaction_stated"].map(
-        {True: "Market reaction stated in headline", False: "Event—verify the price reaction"}
-    )
     result["normalised_title"] = result["title"].str.lower().str.replace(r"\W+", " ", regex=True).str.strip()
     result = result.sort_values(["importance", "published"], ascending=[False, False])
     result = result.drop_duplicates("normalised_title", keep="first")
-    trusted = result.loc[result["trusted_source"]]
-    if len(trusted) >= 3:
-        result = trusted
     return result.head(limit).drop(columns=["normalised_title"]).reset_index(drop=True)
