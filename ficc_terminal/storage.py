@@ -11,9 +11,19 @@ class JournalStore:
     def __init__(self, path: str | Path = "data/ficc_terminal.db") -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(self.path, check_same_thread=False)
+        self.connection = sqlite3.connect(
+            self.path,
+            check_same_thread=False,
+            timeout=30.0,
+        )
         self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA busy_timeout = 30000")
+        self.connection.execute("PRAGMA foreign_keys = ON")
+        self.connection.execute("PRAGMA journal_mode = WAL")
         self._initialise()
+
+    def close(self) -> None:
+        self.connection.close()
 
     def _initialise(self) -> None:
         self.connection.executescript(
