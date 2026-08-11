@@ -241,32 +241,108 @@ def render_event(row: pd.Series, number: int) -> None:
         st.link_button("Open source", row["url"], width="stretch")
 
 
-def render_morning_call(row: pd.Series, *, label: str | None = None) -> None:
-    call_date = pd.to_datetime(row["call_date"], errors="coerce")
-    date_label = (
+def morning_call_date_label(value: object) -> str:
+    call_date = pd.to_datetime(value, errors="coerce")
+    return (
         call_date.strftime("%A, %d %B %Y")
         if pd.notna(call_date)
-        else field_text(row["call_date"])
+        else field_text(value)
     )
+
+
+def render_morning_call(row: pd.Series) -> None:
     with st.container(border=True):
-        if label:
-            st.markdown(f"**{label}**")
-        st.caption(date_label)
+        st.caption(morning_call_date_label(row["call_date"]))
         st.write(field_text(row["summary"]))
 
 
 def render_public_morning_call_history(calls: pd.DataFrame) -> None:
-    st.markdown("## Published morning calls")
+    st.markdown("## Latest morning call")
     if calls.empty:
         st.info("No morning call has been published yet.")
         return
 
-    render_morning_call(calls.iloc[0], label="Latest morning call")
-    earlier_calls = calls.iloc[1:]
+    render_morning_call(calls.iloc[0])
+    earlier_calls = calls.iloc[1:].copy()
     if not earlier_calls.empty:
-        with st.expander(f"View earlier morning calls ({len(earlier_calls)})"):
-            for _, row in earlier_calls.iterrows():
-                render_morning_call(row)
+        earlier_calls["id"] = earlier_calls["id"].astype(int)
+        with st.expander(f"Browse past morning calls ({len(earlier_calls)})"):
+            call_ids = earlier_calls["id"].tolist()
+            selected_id = st.selectbox(
+                "Select a date",
+                call_ids,
+                format_func=lambda call_id: morning_call_date_label(
+                    earlier_calls.loc[
+                        earlier_calls["id"] == call_id,
+                        "call_date",
+                    ].iloc[0]
+                ),
+                key="public_morning_call_archive",
+            )
+            selected_call = earlier_calls.loc[
+                earlier_calls["id"] == selected_id
+            ].iloc[0]
+            render_morning_call(selected_call)
+
+
+def render_morning_call_editor(
+    calls: pd.DataFrame,
+    store: JournalStore | PostgresJournalStore,
+) -> None:
+    st.markdown("## Your 60-second morning call")
+    with st.expander("Write or edit a morning call"):
+        call_options: list[str | int] = ["new"]
+        if not calls.empty:
+            call_options.extend(calls["id"].astype(int).tolist())
+
+        def call_option_label(value: str | int) -> str:
+            if value == "new":
+                return "New morning call"
+            selected_date = calls.loc[calls["id"] == value, "call_date"].iloc[0]
+            return f"Edit · {morning_call_date_label(selected_date)}"
+
+        selected_option = st.selectbox(
+            "Entry",
+            call_options,
+            format_func=call_option_label,
+            key="morning_call_editor_selection",
+        )
+        is_new = selected_option == "new"
+        if is_new:
+            selected_date = date.today()
+            existing_text = ""
+        else:
+            selected_row = calls.loc[calls["id"] == selected_option].iloc[0]
+            selected_date = pd.to_datetime(selected_row["call_date"]).date()
+            existing_text = field_text(selected_row["summary"])
+
+        with st.form(f"morning_call_form_{selected_option}"):
+            if is_new:
+                call_date = st.date_input("Publication date", value=selected_date)
+            else:
+                call_date = selected_date
+                st.caption(f"Editing {morning_call_date_label(call_date)}")
+            call_text = st.text_area(
+                "Morning call",
+                value=existing_text,
+                placeholder="Write today's morning call…",
+                height=210,
+            )
+            submitted = st.form_submit_button(
+                "Publish morning call" if is_new else "Save changes"
+            )
+
+        if submitted:
+            if call_text.strip():
+                store.save_morning_call(str(call_date), call_text.strip(), "", "")
+                st.session_state["morning_call_saved"] = (
+                    "Morning call published."
+                    if is_new
+                    else "Morning call updated."
+                )
+                st.rerun()
+            else:
+                st.warning("Write the morning call before saving it.")
 
 
 def market_timeline_frame(
@@ -351,8 +427,9 @@ if page == "Overnight brief":
     )
 
     calls = store.list_morning_calls()
-    if st.session_state.pop("morning_call_saved", False):
-        st.success("Morning call saved to the dated history.")
+    morning_call_message = st.session_state.pop("morning_call_saved", "")
+    if morning_call_message:
+        st.success(morning_call_message)
     render_public_morning_call_history(calls)
 
     st.markdown("## Market events")
@@ -398,20 +475,7 @@ if page == "Overnight brief":
         with column:
             show_move(label, row, context)
 
-    st.markdown("## Your 60-second morning call")
-    call = st.text_area(
-        "Morning call",
-        value="",
-        placeholder="Write today's morning call…",
-        height=210,
-    )
-    if st.button("Save morning call"):
-        if call.strip():
-            store.save_morning_call(str(date.today()), call, "", "")
-            st.session_state["morning_call_saved"] = True
-            st.rerun()
-        else:
-            st.warning("Write the morning call before saving it.")
+    render_morning_call_editor(calls, store)
 
 
 elif page == "Essential charts":
@@ -621,23 +685,12 @@ elif page == "Journal":
         """,
         unsafe_allow_html=True,
     )
-    calls = store.list_morning_calls()
     st.download_button(
         "Download journal backup",
         data=journal_backup_json(store),
         file_name=f"ficc-journal-{date.today()}.json",
         mime="application/json",
     )
-    st.markdown("### Saved morning calls")
-    if calls.empty:
-        st.info("No morning calls saved yet.")
-    else:
-        st.dataframe(
-            calls[["call_date", "summary"]],
-            width="stretch",
-            hide_index=True,
-            column_config={"call_date": "Date", "summary": "Morning call"},
-        )
 
     pitches = store.list_pitches()
     st.markdown("### Saved pitches")
