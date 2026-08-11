@@ -11,7 +11,7 @@ The application is deliberately **official-source first**. It does not pretend t
 
 ## What the application prioritises
 
-- Five distinct market stories, with duplicate coverage of the same underlying event grouped together.
+- Five key market stories plus a rolling 24-hour timeline of other important events, with duplicate coverage of the same underlying story grouped together.
 - Events from official or known free-access publishers, with paywalled publishers excluded on a best-effort basis.
 - The affected asset classes and a direct source link.
 - One TradingView-hosted advanced chart with a permanent short watchlist for rates, FX, credit proxies, commodities and equities.
@@ -25,7 +25,7 @@ The application is deliberately **official-source first**. It does not pretend t
 
 The navigation is deliberately short:
 
-1. **Overnight brief** — what happened, which market to check and the original source.
+1. **Overnight brief** — five key events plus a concise 24-hour timeline so an earlier material story remains visible as new headlines arrive.
 2. **Essential charts** — a fixed TradingView routine plus one key check tailored to today's event.
 3. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
 4. **Journal** — edit saved pitches and monitor them through dated market and performance updates.
@@ -101,7 +101,7 @@ For a public site, recheck each institution's current terms and do not add a dat
 
 ## Daily workflow
 
-- **5 minutes:** read the five distinct ranked events and open the important source links.
+- **5 minutes:** read the five key events, scan the important 24-hour timeline and open the relevant source links.
 - **5 minutes:** check the same exact TradingView symbols and verify the event timing and cross-asset confirmation.
 - **5 minutes:** write the blank 60-second call in your own words.
 - **10 minutes:** write one original FICC pitch with an entry, target, invalidation and time horizon.
