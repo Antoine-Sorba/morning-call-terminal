@@ -62,6 +62,8 @@ class JournalStore:
                 maximum_adverse_move TEXT,
                 catalyst_outcome TEXT,
                 thesis_review TEXT,
+                closed_date TEXT,
+                realized_return_pct REAL,
                 created_at TEXT NOT NULL
             );
 
@@ -78,6 +80,19 @@ class JournalStore:
             );
             """
         )
+        pitch_columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(pitches)").fetchall()
+        }
+        migrations = {
+            "closed_date": "ALTER TABLE pitches ADD COLUMN closed_date TEXT",
+            "realized_return_pct": (
+                "ALTER TABLE pitches ADD COLUMN realized_return_pct REAL"
+            ),
+        }
+        for column, statement in migrations.items():
+            if column not in pitch_columns:
+                self.connection.execute(statement)
         self.connection.commit()
 
     @staticmethod
@@ -257,15 +272,27 @@ class JournalStore:
         maximum_adverse_move: str,
         catalyst_outcome: str,
         thesis_review: str,
+        closed_date: str | None = None,
+        realized_return_pct: float | None = None,
     ) -> None:
         self.connection.execute(
             """
             UPDATE pitches
             SET status = ?, performance = ?, maximum_adverse_move = ?,
-                catalyst_outcome = ?, thesis_review = ?
+                catalyst_outcome = ?, thesis_review = ?, closed_date = ?,
+                realized_return_pct = ?
             WHERE id = ?
             """,
-            (status, performance, maximum_adverse_move, catalyst_outcome, thesis_review, pitch_id),
+            (
+                status,
+                performance,
+                maximum_adverse_move,
+                catalyst_outcome,
+                thesis_review,
+                closed_date,
+                realized_return_pct,
+                pitch_id,
+            ),
         )
         self.connection.commit()
 
@@ -332,6 +359,8 @@ class PostgresJournalStore:
                 maximum_adverse_move TEXT,
                 catalyst_outcome TEXT,
                 thesis_review TEXT,
+                closed_date TEXT,
+                realized_return_pct DOUBLE PRECISION,
                 created_at TEXT NOT NULL
             )
             """,
@@ -347,6 +376,11 @@ class PostgresJournalStore:
                 created_at TEXT NOT NULL
             )
             """,
+            "ALTER TABLE pitches ADD COLUMN IF NOT EXISTS closed_date TEXT",
+            (
+                "ALTER TABLE pitches ADD COLUMN IF NOT EXISTS "
+                "realized_return_pct DOUBLE PRECISION"
+            ),
         )
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -551,6 +585,8 @@ class PostgresJournalStore:
         maximum_adverse_move: str,
         catalyst_outcome: str,
         thesis_review: str,
+        closed_date: str | None = None,
+        realized_return_pct: float | None = None,
     ) -> None:
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -558,7 +594,8 @@ class PostgresJournalStore:
                     """
                     UPDATE pitches
                     SET status = %s, performance = %s, maximum_adverse_move = %s,
-                        catalyst_outcome = %s, thesis_review = %s
+                        catalyst_outcome = %s, thesis_review = %s, closed_date = %s,
+                        realized_return_pct = %s
                     WHERE id = %s
                     """,
                     (
@@ -567,6 +604,8 @@ class PostgresJournalStore:
                         maximum_adverse_move,
                         catalyst_outcome,
                         thesis_review,
+                        closed_date,
+                        realized_return_pct,
                         pitch_id,
                     ),
                 )
