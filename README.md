@@ -19,6 +19,7 @@ The application is deliberately **official-source first**. It does not pretend t
 - One concise market check and one possible FICC angle for the selected event.
 - Auditable official closing/reference data from Treasury, New York Fed, ECB, EIA and BLS.
 - A blank morning-call workspace so the final wording and reasoning remain the user's own.
+- A visitor-facing archive showing the latest written morning call and its date, with earlier calls retained in a dated history.
 - Fully manual FICC pitch entry with no pre-filled trade or recommendation.
 - An editable trade journal with dated performance updates, final post-trade reviews and optional persistent PostgreSQL storage for hosted deployments.
 - Raw-response caching, stale-data flags and an auditable source register.
