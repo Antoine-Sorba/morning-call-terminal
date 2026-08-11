@@ -90,16 +90,18 @@ def get_client() -> OfficialHttpClient:
     return OfficialHttpClient(cache_dir=Path("data/raw"), timeout=15)
 
 
-JOURNAL_SCHEMA_VERSION = 4
+JOURNAL_SCHEMA_VERSION = 5
 REQUIRED_JOURNAL_METHODS = (
     "add_pitch_update",
     "list_pitch_updates",
+    "list_morning_calls",
+    "save_morning_call",
     "update_pitch",
 )
 
 
 @st.cache_resource
-def get_journal_store_v4(
+def get_journal_store_v5(
     schema_version: int,
     database_url: str,
 ) -> JournalStore | PostgresJournalStore:
@@ -129,13 +131,13 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
     """
 
     database_url = configured_database_url()
-    journal = get_journal_store_v4(JOURNAL_SCHEMA_VERSION, database_url)
+    journal = get_journal_store_v5(JOURNAL_SCHEMA_VERSION, database_url)
     if all(hasattr(journal, method) for method in REQUIRED_JOURNAL_METHODS):
         return journal
     if hasattr(journal, "close"):
         journal.close()
-    get_journal_store_v4.clear()
-    journal = get_journal_store_v4(JOURNAL_SCHEMA_VERSION, database_url)
+    get_journal_store_v5.clear()
+    journal = get_journal_store_v5(JOURNAL_SCHEMA_VERSION, database_url)
     missing = [method for method in REQUIRED_JOURNAL_METHODS if not hasattr(journal, method)]
     if missing:
         raise RuntimeError(f"Journal migration incomplete: {', '.join(missing)}")
@@ -239,6 +241,34 @@ def render_event(row: pd.Series, number: int) -> None:
         st.link_button("Open source", row["url"], width="stretch")
 
 
+def render_morning_call(row: pd.Series, *, label: str | None = None) -> None:
+    call_date = pd.to_datetime(row["call_date"], errors="coerce")
+    date_label = (
+        call_date.strftime("%A, %d %B %Y")
+        if pd.notna(call_date)
+        else field_text(row["call_date"])
+    )
+    with st.container(border=True):
+        if label:
+            st.markdown(f"**{label}**")
+        st.caption(date_label)
+        st.write(field_text(row["summary"]))
+
+
+def render_public_morning_call_history(calls: pd.DataFrame) -> None:
+    st.markdown("## Published morning calls")
+    if calls.empty:
+        st.info("No morning call has been published yet.")
+        return
+
+    render_morning_call(calls.iloc[0], label="Latest morning call")
+    earlier_calls = calls.iloc[1:]
+    if not earlier_calls.empty:
+        with st.expander(f"View earlier morning calls ({len(earlier_calls)})"):
+            for _, row in earlier_calls.iterrows():
+                render_morning_call(row)
+
+
 def market_timeline_frame(
     timeline: pd.DataFrame,
     key_events: pd.DataFrame,
@@ -320,6 +350,11 @@ if page == "Overnight brief":
         unsafe_allow_html=True,
     )
 
+    calls = store.list_morning_calls()
+    if st.session_state.pop("morning_call_saved", False):
+        st.success("Morning call saved to the dated history.")
+    render_public_morning_call_history(calls)
+
     st.markdown("## Market events")
     key_tab, timeline_tab = st.tabs(
         ["Key overnight events", "Important events · 24h"]
@@ -373,7 +408,8 @@ if page == "Overnight brief":
     if st.button("Save morning call"):
         if call.strip():
             store.save_morning_call(str(date.today()), call, "", "")
-            st.success("Morning call saved.")
+            st.session_state["morning_call_saved"] = True
+            st.rerun()
         else:
             st.warning("Write the morning call before saving it.")
 
