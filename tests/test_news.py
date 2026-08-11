@@ -6,6 +6,7 @@ from ficc_terminal.news import (
     classify_assets,
     parse_news_feed,
     precise_headline,
+    rank_important_events,
     rank_market_events,
 )
 
@@ -183,3 +184,72 @@ def test_cross_asset_oil_war_headline_is_grouped_with_hormuz_story() -> None:
         limit=5,
     )
     assert (ranked["story_key"] == "middle_east_energy").sum() == 1
+
+
+def test_important_timeline_keeps_an_earlier_material_story_without_noise() -> None:
+    stories = [
+        ("2026-08-11T10:00:00Z", "OPEC oil output exceeds quota targets", "Reuters"),
+        ("2026-08-11T12:00:00Z", "Dollar falls after surprise central bank intervention", "Reuters"),
+        ("2026-08-11T13:00:00Z", "Credit spreads widen after major company default", "Reuters"),
+        ("2026-08-11T14:00:00Z", "Nasdaq futures plunge after earnings shock", "CNBC"),
+        ("2026-08-11T15:00:00Z", "US Treasury yields surge after inflation surprise", "Reuters"),
+        ("2026-08-11T16:00:00Z", "Gold rallies after emergency sanctions announcement", "BBC"),
+        ("2026-08-11T17:00:00Z", "New Zealand stocks end slightly lower", "TradingView"),
+    ]
+    frame = pd.DataFrame(
+        [
+            {
+                "published": published,
+                "title": title,
+                "url": f"https://example.com/{index}",
+                "publisher": publisher,
+                "feed": "Cross-asset markets",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-11T18:00:00Z",
+                "stale": False,
+            }
+            for index, (published, title, publisher) in enumerate(stories)
+        ]
+    )
+    now = datetime(2026, 8, 11, 18, 0, tzinfo=timezone.utc)
+
+    key_events = rank_market_events(frame, now=now, limit=5)
+    timeline = rank_important_events(frame, now=now, limit=20)
+
+    earlier_story = stories[0][1]
+    noise = stories[-1][1]
+    assert len(key_events) == 5
+    assert earlier_story not in key_events["title"].tolist()
+    assert earlier_story in timeline["title"].tolist()
+    assert noise not in timeline["title"].tolist()
+    assert timeline["story_key"].nunique() == len(timeline)
+
+
+def test_important_timeline_uses_a_strict_rolling_24_hour_window() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "published": published,
+                "title": title,
+                "url": f"https://example.com/{index}",
+                "publisher": "Reuters",
+                "feed": "Cross-asset markets",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-11T18:00:00Z",
+                "stale": False,
+            }
+            for index, (published, title) in enumerate(
+                [
+                    ("2026-08-10T19:00:00Z", "Oil jumps after unexpected supply disruption"),
+                    ("2026-08-10T17:00:00Z", "Dollar plunges after surprise central bank intervention"),
+                ]
+            )
+        ]
+    )
+
+    timeline = rank_important_events(
+        frame,
+        now=datetime(2026, 8, 11, 18, 0, tzinfo=timezone.utc),
+    )
+
+    assert timeline["title"].tolist() == ["Oil jumps after unexpected supply disruption"]
