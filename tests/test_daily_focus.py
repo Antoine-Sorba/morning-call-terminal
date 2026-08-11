@@ -8,8 +8,8 @@ def test_oil_event_creates_event_specific_questions_and_pitch_angle() -> None:
         asset_class="Commodities",
         indicator_names=["Brent Crude Oil", "Light Crude Oil Futures"],
     )
-    assert "what time" in focus["questions"][0].lower()
-    assert any("call-spread" in angle for angle in focus["pitch_angles"])
+    assert "Brent vs WTI" in focus["watch"]
+    assert "defined-risk oil hedge" in focus["pitch_angle"]
 
 
 def test_yen_event_creates_fx_specific_pitch_angle() -> None:
@@ -19,5 +19,6 @@ def test_yen_event_creates_fx_specific_pitch_angle() -> None:
         asset_class="FX",
         indicator_names=["U.S. Dollar Currency Index", "U.S. Dollar / Japanese Yen"],
     )
-    assert any("USD/JPY" in angle for angle in focus["pitch_angles"])
-    assert any("DXY" in angle for angle in focus["pitch_angles"])
+    assert "USD/JPY" in focus["watch"]
+    assert "DXY" in focus["watch"]
+    assert "defined-risk USD/JPY" in focus["pitch_angle"]
