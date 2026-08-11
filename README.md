@@ -1,4 +1,4 @@
-# Global Markets Morning Brief
+# Cross-Asset Morning Call & FICC Trade Journal
 
 A qualitative-first Python/Streamlit project built for practising the daily work of a FICC salesperson:
 
@@ -14,19 +14,19 @@ The application is deliberately **official-source first**. It does not pretend t
 - Five key market stories plus a rolling 24-hour timeline of other important events, with duplicate coverage of the same underlying story grouped together.
 - Events from official or known free-access publishers, with paywalled publishers excluded on a best-effort basis.
 - The affected asset classes and a direct source link.
-- One TradingView-hosted advanced chart with a permanent short watchlist for rates, FX, credit proxies, commodities and equities.
+- Native Plotly charts built from official rates, FX and energy history, with recruiter-safe direct TradingView links for live or delayed market charts.
 - The exact TradingView instrument names and symbols to check in the same order every day.
 - One concise market check and one possible FICC angle for the selected event.
 - Auditable official closing/reference data from Treasury, New York Fed, ECB, EIA and BLS.
 - A blank morning-call workspace so the final wording and reasoning remain the user's own.
 - Fully manual FICC pitch entry with no pre-filled trade or recommendation.
-- An editable SQLite journal with dated performance updates and final post-trade reviews.
+- An editable trade journal with dated performance updates, final post-trade reviews and optional persistent PostgreSQL storage for hosted deployments.
 - Raw-response caching, stale-data flags and an auditable source register.
 
 The navigation is deliberately short:
 
 1. **Overnight brief** — five key events plus a concise 24-hour timeline so an earlier material story remains visible as new headlines arrive.
-2. **Essential charts** — a fixed TradingView routine plus one key check tailored to today's event.
+2. **Essential charts** — native official-data history, a fixed market routine, direct live-chart links and one key check tailored to today's event.
 3. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
 4. **Journal** — edit saved pitches and monitor them through dated market and performance updates.
 5. **Sources** — audit data health, methodology and reuse constraints.
@@ -40,7 +40,7 @@ The project therefore uses:
 - **Python-controlled official data:** Treasury, New York Fed, ECB, Bank of England, EIA, CFTC and BLS.
 - **Official announcement feeds:** Federal Reserve, ECB, Bank of England and Reserve Bank of Australia RSS.
 - **News discovery:** targeted Google News RSS searches, limited to headlines, named free-access publishers and source links. Discovery is not treated as proof of causality.
-- **Provider-hosted widgets:** current/delayed rates, FX, credit proxies, commodities and equity context, with TradingView attribution retained.
+- **Direct provider links:** exact TradingView symbols open outside the app, avoiding third-party embed failures while retaining a repeatable live-market routine.
 - **Human judgement:** the final explanation, opinion and FICC pitch.
 
 It deliberately does **not** redistribute ICE BofA credit series through FRED, scrape news articles or label an ETF price as a credit spread.
@@ -65,6 +65,18 @@ EIA_API_KEY=your_key_here
 
 Never commit `.env` or an API key to GitHub.
 
+To keep saved morning calls, pitches and performance updates across Streamlit
+Cloud restarts and redeployments, add a PostgreSQL connection string to the
+deployment secrets:
+
+```toml
+DATABASE_URL = "postgresql://user:password@host:5432/database?sslmode=require"
+```
+
+Without `DATABASE_URL`, the app uses local SQLite for development. The Journal
+page also provides a JSON backup download, but local SQLite alone is not durable
+on Streamlit Community Cloud.
+
 ## Refresh data without opening the website
 
 ```bash
@@ -85,7 +97,7 @@ Remember that UK daylight-saving time affects UTC-based schedulers.
 pytest -q
 ```
 
-The tests cover official-response parsing, free-source news filtering, event-tailored market checks, market calculations and the SQLite journal.
+The tests cover official-response parsing, native charts, free-source news filtering, event-tailored market checks, market calculations and journal storage.
 
 ## Deploy
 
@@ -95,7 +107,7 @@ The simplest public deployment is Streamlit Community Cloud:
 2. Connect the repository at <https://share.streamlit.io/>.
 3. Set `app.py` as the entry point.
 4. Add `EIA_API_KEY` in the deployment's secrets rather than the repository.
-5. Keep TradingView attribution visible.
+5. Add `DATABASE_URL` to Streamlit secrets if the public journal must persist.
 
 For a public site, recheck each institution's current terms and do not add a data series merely because it is technically downloadable.
 
@@ -117,21 +129,22 @@ ficc_terminal/cache.py              Raw-response cache and fallback logic
 ficc_terminal/official_sources.py   Official-source adapters and parsers
 ficc_terminal/news.py               Overnight headline discovery, classification and ranking
 ficc_terminal/analytics.py          Changes, curves, ranking and themes
+ficc_terminal/charts.py             Native Plotly charts from official history
 ficc_terminal/daily_focus.py        Event-tailored questions and pitch angles
-ficc_terminal/storage.py            SQLite morning-call and trade journal
+ficc_terminal/storage.py            SQLite and persistent PostgreSQL journal backends
 ficc_terminal/source_catalog.py     Source and reuse register
-ficc_terminal/widgets.py            Provider-hosted widget configuration
+ficc_terminal/widgets.py            Fixed watchlists and direct chart links
 scripts/refresh_data.py             Scheduled/manual refresh command
 tests/                              Offline source, news, analytics and journal tests
 ```
 
 ## Suggested CV wording after you have used it consistently
 
-**Global Markets Morning Brief — Independent Python Project**
+**Cross-Asset Morning Call & FICC Trade Journal — Independent Python Project**
 
-- Developed a Python/Streamlit cross-asset dashboard using official Treasury, central-bank and government data, with raw-response caching, stale-data controls and transparent source attribution.
-- Translated rates, FX, credit, commodities and equity-risk developments into concise morning commentary and client-specific FICC trade and hedging discussions.
-- Maintained a SQLite trade journal tracking catalysts, adverse movement, performance and post-trade thesis reviews.
+- Built and deployed a Python/Streamlit morning-call platform monitoring five asset classes, ranking the five most material overnight events and retaining a source-linked 24-hour market timeline.
+- Established a daily routine connecting macroeconomic, monetary-policy and geopolitical catalysts to cross-asset price action, producing a 60-second morning call supported by official data.
+- Formulated client-relevant, event-driven FICC trade pitches with defined instruments, catalysts, entries, targets, invalidation points and horizons, tracking daily performance against the original thesis.
 
 Only add measurable figures—such as the number of daily calls or pitches—after you have actually produced them.
 
