@@ -91,6 +91,28 @@ class JournalStore:
         interpretation: str,
         sources_checked: str,
     ) -> int:
+        existing = self.connection.execute(
+            """
+            SELECT id FROM morning_calls
+            WHERE call_date = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (call_date,),
+        ).fetchone()
+        if existing is not None:
+            call_id = int(existing["id"])
+            self.connection.execute(
+                """
+                UPDATE morning_calls
+                SET summary = ?, interpretation = ?, sources_checked = ?, created_at = ?
+                WHERE id = ?
+                """,
+                (summary, interpretation, sources_checked, self._now(), call_id),
+            )
+            self.connection.commit()
+            return call_id
+
         cursor = self.connection.execute(
             """
             INSERT INTO morning_calls (call_date, summary, interpretation, sources_checked, created_at)
@@ -163,7 +185,16 @@ class JournalStore:
 
     def list_morning_calls(self) -> pd.DataFrame:
         return pd.read_sql_query(
-            "SELECT * FROM morning_calls ORDER BY call_date DESC, id DESC", self.connection
+            """
+            SELECT * FROM morning_calls AS current_call
+            WHERE current_call.id = (
+                SELECT MAX(latest.id)
+                FROM morning_calls AS latest
+                WHERE latest.call_date = current_call.call_date
+            )
+            ORDER BY call_date DESC, id DESC
+            """,
+            self.connection,
         )
 
     def add_pitch_update(
@@ -343,6 +374,35 @@ class PostgresJournalStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
+                    SELECT id FROM morning_calls
+                    WHERE call_date = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (call_date,),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    call_id = int(existing["id"])
+                    cursor.execute(
+                        """
+                        UPDATE morning_calls
+                        SET summary = %s, interpretation = %s, sources_checked = %s,
+                            created_at = %s
+                        WHERE id = %s
+                        """,
+                        (
+                            summary,
+                            interpretation,
+                            sources_checked,
+                            self._now(),
+                            call_id,
+                        ),
+                    )
+                    return call_id
+
+                cursor.execute(
+                    """
                     INSERT INTO morning_calls (
                         call_date, summary, interpretation, sources_checked, created_at
                     ) VALUES (%s, %s, %s, %s, %s)
@@ -420,7 +480,15 @@ class PostgresJournalStore:
 
     def list_morning_calls(self) -> pd.DataFrame:
         return self._frame(
-            "SELECT * FROM morning_calls ORDER BY call_date DESC, id DESC"
+            """
+            SELECT * FROM morning_calls AS current_call
+            WHERE current_call.id = (
+                SELECT MAX(latest.id)
+                FROM morning_calls AS latest
+                WHERE latest.call_date = current_call.call_date
+            )
+            ORDER BY call_date DESC, id DESC
+            """
         )
 
     def add_pitch_update(
