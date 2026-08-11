@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
@@ -8,11 +9,11 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from ficc_terminal.analytics import build_snapshot
 from ficc_terminal.cache import OfficialHttpClient
+from ficc_terminal.charts import build_essential_chart
 from ficc_terminal.daily_focus import build_daily_focus
 from ficc_terminal.models import MarketDataset
 from ficc_terminal.news import fetch_market_news, rank_important_events, rank_market_events
@@ -25,18 +26,32 @@ from ficc_terminal.official_sources import (
     fetch_us_treasury_curve,
 )
 from ficc_terminal.source_catalog import source_catalog_frame
-from ficc_terminal.storage import JournalStore
+from ficc_terminal.storage import JournalStore, PostgresJournalStore, create_journal_store
 from ficc_terminal.widgets import (
     ESSENTIAL_MARKETS,
-    tradingview_advanced_chart_html,
-    tradingview_ticker_html,
+    tradingview_chart_url,
 )
 
 
 load_dotenv()
 
+APP_NAME = "Cross-Asset Morning Call & FICC Trade Journal"
+CLIENT_TYPES = (
+    "Select a client type",
+    "Macro hedge fund",
+    "Real-money asset manager",
+    "Credit fund",
+    "Pension fund / insurance company",
+    "Bank treasury / ALM",
+    "Corporate treasurer - importer / exporter",
+    "Corporate treasurer - commodity producer / consumer",
+    "Sovereign wealth fund / reserve manager",
+    "Private bank / wealth manager",
+    "Other",
+)
+
 st.set_page_config(
-    page_title="Global Markets Morning Brief",
+    page_title=APP_NAME,
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -57,6 +72,9 @@ st.markdown(
     .hero-title { max-width:980px; font:500 clamp(2.5rem,5vw,4.8rem)/1 Georgia,serif; letter-spacing:-.05em; margin:.5rem 0 .8rem; }
     .event-number { color:#123f32; font-size:.7rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
     .warning-box { background:#fff4df; border:1px solid #dfc38a; padding:1rem; border-radius:.35rem; }
+    .chart-fallback { min-height:330px; display:flex; flex-direction:column; justify-content:center; background:#fffef9; border:1px solid #d6dad1; border-radius:.5rem; padding:2.25rem; }
+    .chart-fallback-title { font:500 2rem/1.15 Georgia,serif; color:#123f32; margin-bottom:.75rem; }
+    .chart-fallback-copy { color:#657169; max-width:620px; }
     div[data-testid="stMetric"] { background:#fffef9; border:1px solid #d6dad1; padding:.85rem; }
     div[data-testid="stMetric"] label { color:#617067; }
     [data-testid="stLinkButton"] a { border-color:#123f32; }
@@ -72,7 +90,7 @@ def get_client() -> OfficialHttpClient:
     return OfficialHttpClient(cache_dir=Path("data/raw"), timeout=15)
 
 
-JOURNAL_SCHEMA_VERSION = 3
+JOURNAL_SCHEMA_VERSION = 4
 REQUIRED_JOURNAL_METHODS = (
     "add_pitch_update",
     "list_pitch_updates",
@@ -81,12 +99,28 @@ REQUIRED_JOURNAL_METHODS = (
 
 
 @st.cache_resource
-def get_journal_store_v3(schema_version: int) -> JournalStore:
+def get_journal_store_v4(
+    schema_version: int,
+    database_url: str,
+) -> JournalStore | PostgresJournalStore:
     del schema_version
-    return JournalStore("data/ficc_terminal.db")
+    return create_journal_store(
+        database_url=database_url,
+        sqlite_path="data/ficc_terminal.db",
+    )
 
 
-def load_journal_store() -> JournalStore:
+def configured_database_url() -> str:
+    environment_url = os.getenv("DATABASE_URL", "").strip()
+    if environment_url:
+        return environment_url
+    try:
+        return str(st.secrets.get("DATABASE_URL", "")).strip()
+    except Exception:
+        return ""
+
+
+def load_journal_store() -> JournalStore | PostgresJournalStore:
     """Return a journal object compatible with the current application.
 
     Streamlit can retain a cached resource while imported class code changes.
@@ -94,13 +128,14 @@ def load_journal_store() -> JournalStore:
     instead of repeatedly raising AttributeError errors.
     """
 
-    journal = get_journal_store_v3(JOURNAL_SCHEMA_VERSION)
+    database_url = configured_database_url()
+    journal = get_journal_store_v4(JOURNAL_SCHEMA_VERSION, database_url)
     if all(hasattr(journal, method) for method in REQUIRED_JOURNAL_METHODS):
         return journal
     if hasattr(journal, "close"):
         journal.close()
-    get_journal_store_v3.clear()
-    journal = get_journal_store_v3(JOURNAL_SCHEMA_VERSION)
+    get_journal_store_v4.clear()
+    journal = get_journal_store_v4(JOURNAL_SCHEMA_VERSION, database_url)
     missing = [method for method in REQUIRED_JOURNAL_METHODS if not hasattr(journal, method)]
     if missing:
         raise RuntimeError(f"Journal migration incomplete: {', '.join(missing)}")
@@ -182,6 +217,18 @@ def field_text(value: object) -> str:
     return "" if value is None or pd.isna(value) else str(value)
 
 
+def journal_backup_json(
+    store: JournalStore | PostgresJournalStore,
+) -> str:
+    payload = {
+        "exported_at": datetime.now(ZoneInfo("Europe/London")).isoformat(timespec="seconds"),
+        "morning_calls": store.list_morning_calls().to_dict(orient="records"),
+        "pitches": store.list_pitches().to_dict(orient="records"),
+        "pitch_updates": store.list_pitch_updates().to_dict(orient="records"),
+    }
+    return json.dumps(payload, indent=2, default=str)
+
+
 def render_event(row: pd.Series, number: int) -> None:
     with st.container(border=True):
         st.markdown(f'<div class="event-number">Event {number} · {row["event_type"]}</div>', unsafe_allow_html=True)
@@ -240,8 +287,8 @@ def metadata_health(datasets: dict[str, MarketDataset]) -> pd.DataFrame:
 
 
 with st.sidebar:
-    st.markdown("## Global Markets Morning Brief")
-    st.caption("Cross-asset market journal")
+    st.markdown(f"## {APP_NAME}")
+    st.caption("Daily markets and trade-pitch workflow")
     page = st.radio(
         "Navigation",
         ["Overnight brief", "Essential charts", "Today's trade pitch", "Journal", "Sources"],
@@ -267,7 +314,7 @@ if page == "Overnight brief":
         """
         <div class="hero">
           <div class="hero-kicker">London morning</div>
-          <div class="hero-title">Global Markets Morning Brief</div>
+          <div class="hero-title">Cross-Asset Morning Call &amp; FICC Trade Journal</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -303,9 +350,7 @@ if page == "Overnight brief":
                 },
             )
 
-    st.markdown("## The market reaction check")
-    components.html(tradingview_ticker_html(), height=92, scrolling=False)
-
+    st.markdown("## Latest official reference moves")
     metric_columns = st.columns(5)
     essential_rows = [
         ("US 2Y", snapshot_row(snapshot, "2Y", "Treasury"), "US Treasury close"),
@@ -359,12 +404,41 @@ elif page == "Essential charts":
             st.caption(indicator["why"])
         if asset_class == "Credit":
             st.markdown(
-                '<div class="warning-box"><strong>Credit limitation</strong><br>Free daily CDS indices and institutional spreads are licensed. The chart shows transparent proxies and VIX context; use CMDI/CISS for official stress and a licensed terminal for executable spreads.</div>',
+                '<div class="warning-box"><strong>Credit data boundary</strong><br>Free daily CDS indices and institutional spreads are licensed. Use HYG and LQD only as price proxies, CMDI/CISS for official stress, and a licensed terminal for executable spreads.</div>',
                 unsafe_allow_html=True,
             )
     with right:
-        components.html(tradingview_advanced_chart_html(asset_class), height=660, scrolling=False)
-        st.caption("TradingView hosts this chart directly. Use the watchlist inside it to switch instruments; delay depends on the exchange and symbol.")
+        official_chart = build_essential_chart(asset_class, datasets)
+        if official_chart is not None:
+            st.plotly_chart(
+                official_chart.figure,
+                width="stretch",
+                config={"displayModeBar": False, "scrollZoom": False},
+            )
+            st.caption(f"{official_chart.source_name} · {official_chart.note}")
+            st.link_button("Open official chart source", official_chart.source_url)
+        else:
+            st.markdown(
+                """
+                <div class="chart-fallback">
+                  <div class="chart-fallback-title">Open the live market chart directly</div>
+                  <div class="chart-fallback-copy">This public dashboard does not embed third-party pricing scripts. Select an instrument below to open its current or delayed chart in TradingView.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        live_instrument = st.selectbox(
+            "Live chart to open",
+            guide["indicators"],
+            format_func=lambda indicator: f"{indicator['name']} · {indicator['symbol']}",
+            key=f"live_chart_{asset_class}",
+        )
+        st.link_button(
+            f"Open {live_instrument['symbol']} in TradingView",
+            tradingview_chart_url(live_instrument["symbol"]),
+            width="stretch",
+        )
 
     st.markdown("### Today's event and questions")
     if events.empty:
@@ -447,7 +521,15 @@ elif page == "Today's trade pitch":
         with top_middle:
             product = st.text_input("Asset class / product")
         with top_right:
-            client = st.text_input("Client / audience")
+            client_type = st.selectbox("Client / audience", CLIENT_TYPES)
+            custom_client = (
+                st.text_input("Custom client / audience")
+                if client_type == "Other"
+                else ""
+            )
+            client = custom_client.strip() if client_type == "Other" else client_type
+            if client_type == "Select a client type":
+                client = ""
 
         market_view = st.text_area("Thesis", height=100)
         instrument = st.text_area("Direction and instrument", height=85)
@@ -469,8 +551,8 @@ elif page == "Today's trade pitch":
         submitted = st.form_submit_button("Save pitch to journal")
 
     if submitted:
-        if not trade_name.strip() or not market_view.strip() or not instrument.strip():
-            st.warning("Complete the trade name, thesis, and direction/instrument before saving.")
+        if not client or not trade_name.strip() or not market_view.strip() or not instrument.strip():
+            st.warning("Select a client and complete the trade name, thesis, and direction/instrument before saving.")
         else:
             completed = {
                 "client": client,
@@ -504,6 +586,12 @@ elif page == "Journal":
         unsafe_allow_html=True,
     )
     calls = store.list_morning_calls()
+    st.download_button(
+        "Download journal backup",
+        data=journal_backup_json(store),
+        file_name=f"ficc-journal-{date.today()}.json",
+        mime="application/json",
+    )
     st.markdown("### Saved morning calls")
     if calls.empty:
         st.info("No morning calls saved yet.")
@@ -761,6 +849,15 @@ else:
     if not health.empty:
         st.dataframe(health, width="stretch", hide_index=True)
 
+    st.markdown("### Journal storage")
+    if store.persistent:
+        st.success("Saved calls, pitches and performance updates use persistent PostgreSQL storage.")
+    else:
+        st.warning(
+            "This deployment is using local SQLite. Add DATABASE_URL to Streamlit secrets "
+            "before relying on the journal across app restarts or redeployments."
+        )
+
     st.markdown("### Source register")
     catalog = source_catalog_frame()
     st.dataframe(
@@ -785,6 +882,6 @@ else:
 
 st.markdown("---")
 st.caption(
-    f"Global Markets Morning Brief · Refreshed {datetime.now(ZoneInfo('Europe/London')).strftime('%d %b %Y %H:%M London')} · "
+    f"{APP_NAME} · Refreshed {datetime.now(ZoneInfo('Europe/London')).strftime('%d %b %Y %H:%M London')} · "
     "Facts must be verified before publication · Not investment advice"
 )
