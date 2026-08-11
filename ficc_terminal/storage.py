@@ -198,6 +198,18 @@ class JournalStore:
         self.connection.commit()
         return cursor.rowcount == 1
 
+    def delete_pitch(self, pitch_id: int) -> bool:
+        self.connection.execute(
+            "DELETE FROM pitch_updates WHERE pitch_id = ?",
+            (pitch_id,),
+        )
+        cursor = self.connection.execute(
+            "DELETE FROM pitches WHERE id = ?",
+            (pitch_id,),
+        )
+        self.connection.commit()
+        return cursor.rowcount == 1
+
     def list_morning_calls(self) -> pd.DataFrame:
         return pd.read_sql_query(
             """
@@ -509,6 +521,19 @@ class PostgresJournalStore:
                 cursor.execute(
                     f"UPDATE pitches SET pitch_date = %s, {assignments} WHERE id = %s",
                     [pitch_date, *values, pitch_id],
+                )
+                return cursor.rowcount == 1
+
+    def delete_pitch(self, pitch_id: int) -> bool:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM pitch_updates WHERE pitch_id = %s",
+                    (pitch_id,),
+                )
+                cursor.execute(
+                    "DELETE FROM pitches WHERE id = %s",
+                    (pitch_id,),
                 )
                 return cursor.rowcount == 1
 
