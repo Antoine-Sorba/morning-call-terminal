@@ -61,3 +61,35 @@ def test_asset_classification_is_cross_asset() -> None:
     assets = classify_assets("Dollar rises as Treasury yields jump; stocks fall")
     assert {"Rates", "FX", "Equities"}.issubset(set(assets))
 
+
+def test_event_ranking_excludes_known_paywalled_publishers() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "published": "2026-08-11T06:30:00Z",
+                "title": "Dollar rises as bond yields climb",
+                "url": "https://example.com/bloomberg",
+                "publisher": "Bloomberg",
+                "feed": "Cross-asset markets",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-11T07:00:00Z",
+                "stale": False,
+            },
+            {
+                "published": "2026-08-11T06:35:00Z",
+                "title": "Oil rises after supply disruption",
+                "url": "https://example.com/reuters",
+                "publisher": "Reuters",
+                "feed": "Cross-asset markets",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-11T07:00:00Z",
+                "stale": False,
+            },
+        ]
+    )
+    ranked = rank_market_events(
+        frame,
+        now=datetime(2026, 8, 11, 8, 0, tzinfo=timezone.utc),
+    )
+    assert ranked["publisher"].tolist() == ["Reuters"]
+    assert ranked["free_access_source"].all()
