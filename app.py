@@ -11,9 +11,12 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
-from ficc_terminal.analytics import build_snapshot, potential_themes
+from ficc_terminal.analytics import build_snapshot
 from ficc_terminal.briefing import CLIENT_PERSONAS, TRADE_TEMPLATES, build_pitch
 from ficc_terminal.cache import OfficialHttpClient
+from ficc_terminal.daily_focus import build_daily_focus
+from ficc_terminal.explanations import explain_us_rate_moves
+from ficc_terminal.feedback import evaluate_pitch
 from ficc_terminal.models import MarketDataset
 from ficc_terminal.news import fetch_market_news, rank_market_events
 from ficc_terminal.official_sources import (
@@ -159,38 +162,8 @@ def render_event(row: pd.Series, number: int) -> None:
         tags = " · ".join(row["asset_classes"])
         st.markdown(f"**Markets to check:** {tags}")
         st.write(row["market_relevance"])
-        left, right = st.columns([0.7, 0.3])
-        with left:
-            if row["reaction_stated"]:
-                st.success(row["evidence_label"], icon="✅")
-            else:
-                st.warning(row["evidence_label"], icon="⚠️")
-        with right:
-            st.link_button("Read the source", row["url"], width="stretch")
-
-
-def morning_call_draft(events: pd.DataFrame, snapshot: pd.DataFrame) -> str:
-    if events.empty:
-        event_text = "No sufficiently relevant overnight event was identified automatically."
-    else:
-        lines = []
-        for row in events.head(3).itertuples():
-            markets = ", ".join(row.asset_classes)
-            qualifier = "with a market reaction stated in the headline" if row.reaction_stated else "with the reaction still to verify"
-            lines.append(f"{row.title} ({markets}; {qualifier}).")
-        event_text = " The main source-linked events were: " + " ".join(lines)
-
-    facts = []
-    for row in snapshot.dropna(subset=["change"]).head(4).itertuples():
-        facts.append(f"{row.instrument} {row.change:+.1f}{row.change_unit}")
-    move_text = "; ".join(facts) if facts else "official closing moves are not yet available"
-    return (
-        "Good morning."
-        + event_text
-        + f" The latest official cross-asset check shows: {move_text}. "
-        "My next step is to verify the timing in the TradingView charts and open the original sources before assigning causality. "
-        "For the client conversation, I would focus on the exposure most directly affected, the cleanest FICC expression or hedge, and the event that would invalidate the view."
-    )
+        st.caption("Selected from a known free-access publisher (best effort; access can vary by country).")
+        st.link_button("Read free source", row["url"], width="stretch")
 
 
 def suggested_trade_for_event(event: pd.Series | None) -> str:
@@ -201,10 +174,10 @@ def suggested_trade_for_event(event: pd.Series | None) -> str:
         return "WTI call spread hedge"
     if "FX" in assets:
         return "Three-month USD/JPY call spread"
+    if "Credit" in assets:
+        return "Buy iTraxx Main protection"
     if "Rates" in assets and "FX" not in assets:
         return "US 2s10s steepener"
-    if "Credit" in assets:
-        return "Receive EUR 5Y"
     return "US 2s10s steepener"
 
 
@@ -231,7 +204,7 @@ with st.sidebar:
     st.caption("Understand the story before pitching the trade")
     page = st.radio(
         "Navigation",
-        ["Overnight brief", "Essential charts", "Build a pitch", "Journal", "Sources"],
+        ["Overnight brief", "Essential charts", "Today's trade pitch", "Journal", "Sources"],
         label_visibility="collapsed",
     )
     if st.button("Refresh briefing", width="stretch"):
@@ -265,12 +238,12 @@ if page == "Overnight brief":
     )
 
     st.markdown(
-        '<div class="discipline"><strong>How to read this page:</strong> “Market reaction stated” means the linked headline explicitly describes a move. “Verify the price reaction” means the event is important but causality has not been established. Open the source and check the chart before using it in an interview.</div>',
+        '<div class="discipline"><strong>Daily rule:</strong> read the linked event, note its publication time, then check whether the relevant TradingView chart moved afterwards. Timing helps you test an explanation; it does not prove causality.</div>',
         unsafe_allow_html=True,
     )
 
     st.markdown("## The overnight events")
-    st.caption("Ranked for recency, market breadth, event significance and whether a price reaction is explicitly reported. Maximum five.")
+    st.caption("Maximum five. Paywalled publishers are excluded; links are limited to official or known free-access sources on a best-effort basis.")
     if events.empty:
         st.warning("No sufficiently relevant source-linked event was found in the overnight window. Do not manufacture a story: check the official calendars and live charts below.")
     else:
@@ -294,22 +267,57 @@ if page == "Overnight brief":
             show_move(label, row, context)
     st.caption("These are auditable official reference or closing observations—not a substitute for the overnight TradingView chart.")
 
-    st.markdown("## What may connect the moves?")
-    themes = potential_themes(snapshot)[:2]
-    if not themes:
-        st.info("No strong cross-asset hypothesis is supported by the available official moves.")
-    for theme in themes:
+    st.markdown("## Understand the rates move in plain English")
+    us_two = snapshot_row(snapshot, "2Y", "Treasury")
+    us_ten = snapshot_row(snapshot, "10Y", "Treasury")
+    rates_available = (
+        us_two is not None
+        and us_ten is not None
+        and not pd.isna(us_two.get("change"))
+        and not pd.isna(us_ten.get("change"))
+    )
+    if rates_available:
+        explanation = explain_us_rate_moves(
+            two_year_level=float(us_two["level"]),
+            two_year_change_bp=float(us_two["change"]),
+            ten_year_level=float(us_ten["level"]),
+            ten_year_change_bp=float(us_ten["change"]),
+        )
         with st.container(border=True):
-            st.markdown(f"**Hypothesis: {theme['theme']}**")
-            st.write(theme["evidence"])
-            st.caption(theme["verification"])
+            st.markdown("**What happened**")
+            st.write(explanation["what_happened"])
+            st.markdown("**What the numbers mean**")
+            st.write(explanation["number_meaning"])
+            st.markdown("**One possible interpretation—not a proven cause**")
+            st.write(explanation["possible_interpretation"])
+            st.markdown("**How to check it yourself**")
+            st.write(explanation["how_to_verify"])
+    else:
+        st.info("The official US 2-year and 10-year changes are not both available, so no explanation is generated.")
+
+    with st.expander("Simple rates glossary"):
+        st.markdown(
+            """
+            - **Yield:** the annual return implied by a bond's price. Bond prices and yields normally move in opposite directions.
+            - **Basis point (bp):** 0.01 percentage point. A move from 4.00% to 4.06% is +6 bp.
+            - **2-year yield:** strongly influenced by expectations for Federal Reserve policy over the next few years.
+            - **10-year yield:** influenced by policy expectations plus longer-term growth, inflation and government-bond supply.
+            - **Yield curve:** a comparison of yields at different maturities, such as the 2-year and 10-year.
+            """
+        )
 
     st.markdown("## Your 60-second morning call")
     call = st.text_area(
-        "Edit this draft in your own words",
-        value=morning_call_draft(events, snapshot),
+        "Write your call in your own words",
+        value="",
+        placeholder=(
+            "1. What happened?\n"
+            "2. Which markets moved?\n"
+            "3. What is your interpretation, and what evidence supports it?\n"
+            "4. Why does it matter to a FICC client?"
+        ),
         height=210,
-        help="The draft deliberately avoids claiming an unverified cause.",
+        help="This stays blank so the reasoning and wording remain yours.",
     )
     interpretation = st.text_area(
         "Your interpretation",
@@ -331,7 +339,7 @@ elif page == "Essential charts":
         <div class="hero">
           <div class="hero-kicker">One chart at a time</div>
           <div class="hero-title">The essential cross-asset screen</div>
-          <div class="hero-copy">Choose an asset class, inspect only its core indicators, and answer the three interpretation questions before moving on.</div>
+          <div class="hero-copy">Use the same small TradingView routine every day. The indicators stay fixed; today's questions change with the overnight event.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -342,14 +350,14 @@ elif page == "Essential charts":
         horizontal=True,
     )
     guide = ESSENTIAL_MARKETS[asset_class]
-    left, right = st.columns([0.28, 0.72])
+    left, right = st.columns([0.34, 0.66])
     with left:
-        st.markdown("### Only watch")
-        for indicator in guide["indicators"]:
-            st.markdown(f"- {indicator}")
-        st.markdown("### Ask yourself")
-        for question in guide["look_for"]:
-            st.markdown(f"- {question}")
+        st.markdown("### Your fixed daily watchlist")
+        st.caption("These stay the same every day. Search the exact code in TradingView and check them in this order.")
+        for number, indicator in enumerate(guide["indicators"], start=1):
+            st.markdown(f"**{number}. {indicator['name']}**")
+            st.code(indicator["symbol"], language=None)
+            st.caption(indicator["why"])
         if asset_class == "Credit":
             st.markdown(
                 '<div class="warning-box"><strong>Credit limitation</strong><br>Free daily CDS indices and institutional spreads are licensed. The chart shows transparent proxies and VIX context; use CMDI/CISS for official stress and a licensed terminal for executable spreads.</div>',
@@ -357,7 +365,35 @@ elif page == "Essential charts":
             )
     with right:
         components.html(tradingview_advanced_chart_html(asset_class), height=660, scrolling=False)
-        st.caption("Official TradingView hosted widget. Use the watchlist inside the chart to switch instruments; delay depends on the exchange and symbol.")
+        st.caption("TradingView hosts this chart directly. Use the watchlist inside it to switch instruments; delay depends on the exchange and symbol.")
+
+    st.markdown("### Today's event and questions")
+    if events.empty:
+        focus_title = "The overnight market backdrop"
+        focus_assets: list[str] = []
+        st.info("No qualifying free-access event was found. Use the fixed routine without assigning a cause.")
+    else:
+        focus_title = st.selectbox("Event to investigate", events["title"].tolist())
+        focus_event = events.loc[events["title"] == focus_title].iloc[0]
+        focus_assets = list(focus_event["asset_classes"])
+        st.caption(f"{focus_event['publisher']} · {', '.join(focus_assets)}")
+        st.link_button("Open today's free source", focus_event["url"])
+    focus = build_daily_focus(
+        event_title=focus_title,
+        event_assets=focus_assets,
+        asset_class=asset_class,
+        indicator_names=[indicator["name"] for indicator in guide["indicators"]],
+    )
+    question_column, angle_column = st.columns(2)
+    with question_column:
+        st.markdown("#### Ask yourself today")
+        for question in focus["questions"]:
+            st.markdown(f"- {question}")
+    with angle_column:
+        st.markdown("#### Possible FICC pitch angles")
+        st.caption("Prompts to investigate—not trade recommendations.")
+        for angle in focus["pitch_angles"]:
+            st.markdown(f"- {angle}")
 
     st.markdown("### Primary sources to confirm the story")
     source_links = {
@@ -389,13 +425,13 @@ elif page == "Essential charts":
             st.link_button(label, url, width="stretch")
 
 
-elif page == "Build a pitch":
+elif page == "Today's trade pitch":
     st.markdown(
         """
         <div class="hero">
-          <div class="hero-kicker">News to client conversation</div>
+          <div class="hero-kicker">Today's practice trade</div>
           <div class="hero-title">Turn one event into one FICC pitch</div>
-          <div class="hero-copy">A sales pitch is not “I think the market goes up.” It connects a verified catalyst to a specific client exposure, instrument, objective and risk.</div>
+          <div class="hero-copy">Build one specific idea each day and receive immediate feedback on its structure. Market-performance feedback belongs in the journal after prices have had time to move.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -417,7 +453,7 @@ elif page == "Build a pitch":
         index=trade_names.index(suggested_trade),
     )
     pitch = build_pitch(persona_name, trade_name)
-    event_context = selected_title if selected_event is not None else "Complete after choosing and verifying a catalyst"
+    event_context = selected_title if selected_event is not None else ""
 
     st.markdown(
         f"""
@@ -432,37 +468,58 @@ elif page == "Build a pitch":
         unsafe_allow_html=True,
     )
 
-    st.markdown("### Complete the details")
-    with st.form("pitch_form"):
-        market_view = st.text_area("Market view", value=pitch["market_view"], height=90)
-        instrument = st.text_area("Instrument and structure", value=pitch["instrument"], height=85)
-        catalyst = st.text_area("Verified catalyst", value=event_context, height=80)
-        column_a, column_b = st.columns(2)
-        with column_a:
-            entry_level = st.text_input("Entry level", value=pitch["entry_level"])
-            target = st.text_input("Target or hedge objective", value=pitch["target"])
-            time_horizon = st.text_input("Time horizon", value=pitch["time_horizon"])
-        with column_b:
-            invalidation = st.text_area("What invalidates the view?", value=pitch["invalidation"], height=85)
-            main_risk = st.text_area("Main risks", value=pitch["main_risk"], height=85)
-        client_relevance = st.text_area("Why it is relevant to this client", value=pitch["client_relevance"], height=90)
-        closing_question = st.text_input("Question to ask the client", value=pitch["closing_question"])
-        submitted = st.form_submit_button("Save pitch")
-    if submitted:
-        completed = pitch | {
-            "market_view": market_view,
-            "instrument": instrument,
-            "entry_level": entry_level,
-            "target": target,
-            "invalidation": invalidation,
-            "time_horizon": time_horizon,
-            "catalyst": catalyst,
-            "main_risk": main_risk,
-            "client_relevance": client_relevance,
-            "closing_question": closing_question,
-        }
+    st.markdown("### Complete today's details")
+    state_suffix = f"{event_options.index(selected_title)}_{list(CLIENT_PERSONAS).index(persona_name)}_{trade_names.index(trade_name)}"
+    market_view = st.text_area("Market view", value=pitch["market_view"], height=90, key=f"view_{state_suffix}")
+    instrument = st.text_area("Instrument and structure", value=pitch["instrument"], height=85, key=f"instrument_{state_suffix}")
+    catalyst = st.text_area("Verified catalyst", value=event_context, height=80, key=f"catalyst_{state_suffix}")
+    column_a, column_b = st.columns(2)
+    with column_a:
+        entry_level = st.text_input("Entry level", value=pitch["entry_level"], key=f"entry_{state_suffix}")
+        target = st.text_input("Target or hedge objective", value=pitch["target"], key=f"target_{state_suffix}")
+        time_horizon = st.text_input("Time horizon", value=pitch["time_horizon"], key=f"horizon_{state_suffix}")
+    with column_b:
+        invalidation = st.text_area("What invalidates the view?", value=pitch["invalidation"], height=85, key=f"invalidation_{state_suffix}")
+        main_risk = st.text_area("Main risks", value=pitch["main_risk"], height=85, key=f"risk_{state_suffix}")
+    client_relevance = st.text_area("Why it is relevant to this client", value=pitch["client_relevance"], height=90, key=f"relevance_{state_suffix}")
+    closing_question = st.text_input("Question to ask the client", value=pitch["closing_question"], key=f"question_{state_suffix}")
+    completed = pitch | {
+        "market_view": market_view,
+        "instrument": instrument,
+        "entry_level": entry_level,
+        "target": target,
+        "invalidation": invalidation,
+        "time_horizon": time_horizon,
+        "catalyst": catalyst,
+        "main_risk": main_risk,
+        "client_relevance": client_relevance,
+        "closing_question": closing_question,
+    }
+
+    feedback = evaluate_pitch(completed, event_selected=selected_event is not None)
+    st.markdown("### Immediate pitch feedback")
+    st.progress(feedback["score"])
+    st.markdown(f"**{feedback['score']}/100 · {feedback['summary']}**")
+    feedback_left, feedback_right = st.columns(2)
+    with feedback_left:
+        st.markdown("**Already clear**")
+        if feedback["passed"]:
+            for item in feedback["passed"]:
+                st.markdown(f"- {item}")
+        else:
+            st.caption("No section is specific enough yet.")
+    with feedback_right:
+        st.markdown("**Improve next**")
+        if feedback["improvements"]:
+            for item in feedback["improvements"]:
+                st.markdown(f"- {item}")
+        else:
+            st.caption("All structural checks passed. Challenge the evidence and trade risk once more.")
+    st.caption("This score checks completeness and interview discipline—not whether the trade will make money.")
+
+    if st.button("Save today's trade"):
         store.save_pitch(completed, str(date.today()))
-        st.success("Pitch saved. Review the result later in the Journal.")
+        st.success("Today's trade saved. Add real outcome feedback later in the Journal.")
     st.caption("Illustrative discussion only · Not investment advice · No suitability assessment")
 
 
@@ -539,8 +596,9 @@ else:
         """
         - **Official feeds:** Federal Reserve, ECB and Bank of England releases are collected directly.
         - **News discovery:** targeted Google News RSS searches identify potentially market-moving world events and display the named publisher and source link.
-        - **Ranking:** recency, affected asset classes, high-impact language and an explicitly reported market reaction determine priority.
-        - **No invented causality:** an event without an explicit market reaction is labelled for verification.
+        - **Free-access policy:** paywalled publishers are excluded. Events come from official feeds or a conservative list of publishers normally readable without a subscription; access can still vary by country.
+        - **Ranking:** recency, affected asset classes, high-impact language and headline evidence determine priority.
+        - **No invented causality:** publication time and market charts must be checked before linking an event to a move.
         - **Copyright discipline:** only the headline, publisher and link are displayed; articles are not reproduced.
         """
     )
