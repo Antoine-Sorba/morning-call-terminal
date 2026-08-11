@@ -5,6 +5,24 @@ import pandas as pd
 
 SOURCE_CATALOG = [
     {
+        "market": "Cross-asset events",
+        "institution": "Federal Reserve / ECB / Bank of England",
+        "data": "Official announcements and press releases",
+        "frequency": "As published",
+        "integration": "Automatic RSS",
+        "url": "https://www.federalreserve.gov/feeds/feeds.htm",
+        "reuse": "Headlines and links only; open the primary release before assigning market impact.",
+    },
+    {
+        "market": "World-event discovery",
+        "institution": "Google News / named publishers",
+        "data": "Targeted market-moving headline discovery",
+        "frequency": "Rolling",
+        "integration": "Automatic discovery",
+        "url": "https://news.google.com/",
+        "reuse": "Discovery is not verification; display only the headline, publisher and source link.",
+    },
+    {
         "market": "US rates",
         "institution": "U.S. Department of the Treasury",
         "data": "Nominal and real par yield curves",
@@ -36,7 +54,7 @@ SOURCE_CATALOG = [
         "institution": "Bank of England",
         "data": "Gilt spot curves, OIS, Bank Rate and SONIA",
         "frequency": "Daily / next business day",
-        "integration": "Automatic curve adapter",
+        "integration": "Source-linked; curve adapter retained",
         "url": "https://www.bankofengland.co.uk/statistics/yield-curves",
         "reuse": "Use BoE-owned series under stated terms; SONIA attribution applies.",
     },
@@ -90,7 +108,7 @@ SOURCE_CATALOG = [
         "institution": "Commodity Futures Trading Commission",
         "data": "Commitments of Traders",
         "frequency": "Weekly, Tuesday positions released Friday",
-        "integration": "Automatic",
+        "integration": "Source-linked; weekly adapter retained",
         "url": "https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm",
         "reuse": "U.S. government public reporting data.",
     },
@@ -126,7 +144,7 @@ SOURCE_CATALOG = [
         "institution": "Index operators / TradingView widgets",
         "data": "Provider-hosted indices and heatmaps",
         "frequency": "Provider-labelled",
-        "integration": "Optional hosted widget",
+        "integration": "Hosted interactive widget",
         "url": "https://www.tradingview.com/widget-docs/",
         "reuse": "Keep provider attribution; do not extract and republish widget data.",
     },
@@ -135,4 +153,3 @@ SOURCE_CATALOG = [
 
 def source_catalog_frame() -> pd.DataFrame:
     return pd.DataFrame(SOURCE_CATALOG)
-

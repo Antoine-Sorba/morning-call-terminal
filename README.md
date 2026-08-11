@@ -1,6 +1,6 @@
 # FICC Morning Call & Trade-Idea Terminal
 
-A Python/Streamlit project built for practising the daily work of a FICC salesperson:
+A qualitative-first Python/Streamlit project built for practising the daily work of a FICC salesperson:
 
 1. Identify the most important verified cross-asset moves.
 2. Separate fact, interpretation, opinion, trade and risk.
@@ -9,19 +9,26 @@ A Python/Streamlit project built for practising the daily work of a FICC salespe
 
 The application is deliberately **official-source first**. It does not pretend that one free API can legally supply every professional market price.
 
-## What is included
+## What the application prioritises
 
-- A morning dashboard with levels, daily changes and a transparent importance score.
-- U.S., euro-area and UK rates sections.
-- ECB FX reference rates and Python-derived crosses.
-- Official credit and systemic-risk source register.
-- EIA energy history and CFTC positioning.
-- BLS macroeconomic data and official central-bank RSS links.
-- Optional TradingView widgets for current/delayed prices that Python should not redistribute.
-- Rule-based **potential themes** that require human verification.
+- A maximum of five source-linked overnight events instead of an indiscriminate news feed.
+- A clear distinction between a **market reaction stated by the source** and an event whose price impact still needs verification.
+- The market or asset classes to inspect, why the event matters and a direct source link.
+- One official TradingView-hosted advanced chart with a short watchlist for rates, FX, credit proxies, commodities and equities.
+- Only the essential indicators and three interpretation questions for each asset class.
+- Auditable official closing/reference data from Treasury, New York Fed, ECB, EIA and BLS.
+- Rule-based **potential cross-asset themes** that are explicitly hypotheses.
 - Five fictional client personas and five FICC trade/hedging templates.
 - A SQLite journal for morning calls, pitches, performance and post-trade reviews.
 - Raw-response caching, stale-data flags and an auditable source register.
+
+The navigation is deliberately short:
+
+1. **Overnight brief** — what happened, which market to check and the original source.
+2. **Essential charts** — one chart and one short interpretation guide at a time.
+3. **Build a pitch** — connect a verified event to a client, FICC expression and risk.
+4. **Journal** — save calls and review pitches honestly.
+5. **Sources** — audit data health, methodology and reuse constraints.
 
 ## Why the architecture is hybrid
 
@@ -30,7 +37,9 @@ Official institutions provide reliable curves, reference rates, macroeconomic da
 The project therefore uses:
 
 - **Python-controlled official data:** Treasury, New York Fed, ECB, Bank of England, EIA, CFTC and BLS.
-- **Provider-hosted widgets:** current/delayed futures, FX, commodities and equity context, with TradingView attribution retained.
+- **Official announcement feeds:** Federal Reserve, ECB and Bank of England RSS.
+- **News discovery:** targeted Google News RSS searches, limited to headlines, named publishers and source links. Discovery is not treated as proof of causality.
+- **Provider-hosted widgets:** current/delayed rates, FX, credit proxies, commodities and equity context, with TradingView attribution retained.
 - **Human judgement:** the final explanation, opinion and FICC pitch.
 
 It deliberately does **not** redistribute ICE BofA credit series through FRED, scrape news articles or label an ETF price as a credit spread.
@@ -75,7 +84,7 @@ Remember that UK daylight-saving time affects UTC-based schedulers.
 pytest -q
 ```
 
-The tests cover official-response parsing, basis-point calculations, curve slopes and the SQLite journal.
+The tests cover official-response parsing, news-feed parsing and ranking, basis-point calculations, curve slopes and the SQLite journal.
 
 ## Deploy
 
@@ -91,10 +100,10 @@ For a public site, recheck each institution's current terms and do not add a dat
 
 ## Daily workflow
 
-- **5 minutes:** review official moves and stale-data warnings.
-- **5 minutes:** open the linked official releases and confirm the driver.
-- **5 minutes:** rewrite the generated draft in your own words.
-- **10 minutes:** tailor one FICC pitch to a fictional client.
+- **5 minutes:** read the three-to-five ranked events and open the important source links.
+- **5 minutes:** use the essential charts to verify the reported reaction and cross-asset confirmation.
+- **5 minutes:** rewrite the 60-second call in your own words.
+- **10 minutes:** link one verified event to one fictional client and FICC pitch.
 - **2 minutes:** save it and optionally record a spoken morning call.
 
 The app should reduce searching time, but it must not automate away your judgement. That judgement is what makes the project valuable in interviews.
@@ -105,13 +114,14 @@ The app should reduce searching time, but it must not automate away your judgeme
 app.py                              Streamlit interface
 ficc_terminal/cache.py              Raw-response cache and fallback logic
 ficc_terminal/official_sources.py   Official-source adapters and parsers
+ficc_terminal/news.py               Overnight headline discovery, classification and ranking
 ficc_terminal/analytics.py          Changes, curves, ranking and themes
 ficc_terminal/briefing.py           Client personas and pitch templates
 ficc_terminal/storage.py            SQLite morning-call and trade journal
 ficc_terminal/source_catalog.py     Source and reuse register
 ficc_terminal/widgets.py            Provider-hosted widget configuration
 scripts/refresh_data.py             Scheduled/manual refresh command
-tests/                              Offline parser, analytics and journal tests
+tests/                              Offline source, news, analytics and journal tests
 ```
 
 ## Suggested CV wording after you have used it consistently
@@ -127,4 +137,3 @@ Only add measurable figures—such as the number of daily calls or pitches—aft
 ## Disclaimer
 
 This is an educational project. It is not investment advice, does not provide executable prices and does not perform a suitability assessment.
-
