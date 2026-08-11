@@ -2,7 +2,12 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from ficc_terminal.news import classify_assets, parse_news_feed, rank_market_events
+from ficc_terminal.news import (
+    classify_assets,
+    parse_news_feed,
+    precise_headline,
+    rank_market_events,
+)
 
 
 def test_news_feed_parser_keeps_source_link() -> None:
@@ -62,6 +67,12 @@ def test_asset_classification_is_cross_asset() -> None:
     assert {"Rates", "FX", "Equities"}.issubset(set(assets))
 
 
+def test_asset_classification_does_not_find_rate_inside_strategic() -> None:
+    assets = classify_assets("US Strategic Petroleum Reserve falls as oil jumps")
+    assert "Rates" not in assets
+    assert "Commodities" in assets
+
+
 def test_event_ranking_excludes_known_paywalled_publishers() -> None:
     frame = pd.DataFrame(
         [
@@ -93,3 +104,82 @@ def test_event_ranking_excludes_known_paywalled_publishers() -> None:
     )
     assert ranked["publisher"].tolist() == ["Reuters"]
     assert ranked["free_access_source"].all()
+
+
+def test_similar_oil_headlines_count_as_one_market_story() -> None:
+    titles = [
+        "Oil pares gains as traders weigh Oman-Iran talks",
+        "Oil rises above $89 as Strait of Hormuz deal hopes fade",
+        "Oil Jumps Over 2% as U.S.-Iran Peace Prospects Fade and Hormuz Risks Persist",
+        "Treasury yields up as oil prices jump and investors await inflation data",
+        "Yen strengthens after Bank of Japan intervention warning",
+        "Credit spreads widen after major company default",
+        "Nasdaq futures fall after technology earnings disappoint",
+    ]
+    publishers = ["Reuters", "Yahoo Finance", "Yahoo Finance", "CNBC", "Reuters", "Reuters", "CNBC"]
+    frame = pd.DataFrame(
+        [
+            {
+                "published": f"2026-08-11T{6 + index // 2:02d}:{index % 2 * 20:02d}:00Z",
+                "title": title,
+                "url": f"https://example.com/{index}",
+                "publisher": publishers[index],
+                "feed": "Cross-asset markets",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-11T08:00:00Z",
+                "stale": False,
+            }
+            for index, title in enumerate(titles)
+        ]
+    )
+    ranked = rank_market_events(
+        frame,
+        now=datetime(2026, 8, 11, 9, 0, tzinfo=timezone.utc),
+        limit=5,
+    )
+    assert len(ranked) == 5
+    assert (ranked["story_key"] == "middle_east_energy").sum() == 1
+    assert ranked["story_key"].nunique() == 5
+
+
+def test_treasury_headline_is_made_more_precise() -> None:
+    assert precise_headline(
+        "Treasury yields up as oil prices jump and investors await inflation data"
+    ) == "US Treasury yields rise as oil climbs ahead of inflation data"
+
+
+def test_rba_official_summary_becomes_a_precise_headline() -> None:
+    assert precise_headline(
+        "Statement by the Monetary Policy Board: Monetary Policy Decision",
+        "Reserve Bank of Australia",
+        "At its meeting today, the Board decided to leave the cash rate target unchanged at 4.35 per cent.",
+    ) == "RBA leaves cash rate at 4.35%"
+
+
+def test_cross_asset_oil_war_headline_is_grouped_with_hormuz_story() -> None:
+    titles = [
+        "IXIC: Nasdaq slips as oil jumps 5% amid war uncertainty",
+        "Oil rises above $89 as Strait of Hormuz deal hopes fade",
+        "RBA leaves the cash rate unchanged",
+    ]
+    frame = pd.DataFrame(
+        [
+            {
+                "published": f"2026-08-11T0{6 + index}:00:00Z",
+                "title": title,
+                "url": f"https://example.com/{index}",
+                "publisher": "Reuters",
+                "feed": "Cross-asset markets",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-11T09:00:00Z",
+                "stale": False,
+            }
+            for index, title in enumerate(titles)
+        ]
+    )
+    ranked = rank_market_events(
+        frame,
+        now=datetime(2026, 8, 11, 9, 0, tzinfo=timezone.utc),
+        limit=5,
+    )
+    assert (ranked["story_key"] == "middle_east_energy").sum() == 1
