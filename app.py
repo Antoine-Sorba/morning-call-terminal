@@ -12,11 +12,8 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from ficc_terminal.analytics import build_snapshot
-from ficc_terminal.briefing import CLIENT_PERSONAS, TRADE_TEMPLATES, build_pitch
 from ficc_terminal.cache import OfficialHttpClient
 from ficc_terminal.daily_focus import build_daily_focus
-from ficc_terminal.explanations import explain_us_rate_moves
-from ficc_terminal.feedback import evaluate_pitch
 from ficc_terminal.models import MarketDataset
 from ficc_terminal.news import fetch_market_news, rank_market_events
 from ficc_terminal.official_sources import (
@@ -58,14 +55,8 @@ st.markdown(
     .hero { padding:1rem 0 1.25rem; border-bottom:1px solid #d5d9d0; margin-bottom:1.25rem; }
     .hero-kicker { color:#123f32; font-size:.72rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
     .hero-title { max-width:980px; font:500 clamp(2.5rem,5vw,4.8rem)/1 Georgia,serif; letter-spacing:-.05em; margin:.5rem 0 .8rem; }
-    .hero-copy { max-width:870px; color:#566259; font-size:1.02rem; line-height:1.6; }
-    .event-card { background:#fffef9; border:1px solid #d6dad1; border-left:5px solid #c9f36a; padding:1.05rem 1.15rem; margin:.75rem 0; border-radius:.25rem; }
     .event-number { color:#123f32; font-size:.7rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
-    .discipline { background:#edf4ef; border:1px solid #b8cec0; padding:1rem; border-radius:.35rem; }
     .warning-box { background:#fff4df; border:1px solid #dfc38a; padding:1rem; border-radius:.35rem; }
-    .pitch-box { background:#123f32; color:#f5f7f1; padding:1.25rem; border-radius:.4rem; }
-    .pitch-box strong { color:#c9f36a; }
-    .small-label { color:#66736a; font-size:.72rem; font-weight:750; letter-spacing:.07em; text-transform:uppercase; }
     div[data-testid="stMetric"] { background:#fffef9; border:1px solid #d6dad1; padding:.85rem; }
     div[data-testid="stMetric"] label { color:#617067; }
     [data-testid="stLinkButton"] a { border-color:#123f32; }
@@ -160,25 +151,8 @@ def render_event(row: pd.Series, number: int) -> None:
         st.markdown(f"#### {row['title']}")
         st.caption(event_label(row))
         tags = " · ".join(row["asset_classes"])
-        st.markdown(f"**Markets to check:** {tags}")
-        st.write(row["market_relevance"])
-        st.caption("Selected from a known free-access publisher (best effort; access can vary by country).")
-        st.link_button("Read free source", row["url"], width="stretch")
-
-
-def suggested_trade_for_event(event: pd.Series | None) -> str:
-    if event is None:
-        return "US 2s10s steepener"
-    assets = set(event.get("asset_classes", []))
-    if "Commodities" in assets:
-        return "WTI call spread hedge"
-    if "FX" in assets:
-        return "Three-month USD/JPY call spread"
-    if "Credit" in assets:
-        return "Buy iTraxx Main protection"
-    if "Rates" in assets and "FX" not in assets:
-        return "US 2s10s steepener"
-    return "US 2s10s steepener"
+        st.markdown(f"**{tags}**")
+        st.link_button("Open source", row["url"], width="stretch")
 
 
 def metadata_health(datasets: dict[str, MarketDataset]) -> pd.DataFrame:
@@ -201,7 +175,7 @@ def metadata_health(datasets: dict[str, MarketDataset]) -> pd.DataFrame:
 
 with st.sidebar:
     st.markdown("## FICC Overnight Brief")
-    st.caption("Understand the story before pitching the trade")
+    st.caption("Cross-asset market journal")
     page = st.radio(
         "Navigation",
         ["Overnight brief", "Essential charts", "Today's trade pitch", "Journal", "Sources"],
@@ -212,10 +186,7 @@ with st.sidebar:
         load_overnight_events.clear()
         st.rerun()
     st.markdown("---")
-    st.markdown("**The interview habit**")
-    st.caption("Fact → reaction → interpretation → client relevance → trade → risk")
-    st.markdown("---")
-    st.caption("Educational project · Not investment advice")
+    st.caption("Independent project · Not investment advice")
 
 
 with st.spinner("Building the source-linked overnight brief…"):
@@ -229,29 +200,21 @@ if page == "Overnight brief":
     st.markdown(
         """
         <div class="hero">
-          <div class="hero-kicker">London morning · qualitative first</div>
-          <div class="hero-title">What actually mattered overnight?</div>
-          <div class="hero-copy">A short list of source-linked events, the markets to inspect, and the questions that turn news into a defensible FICC conversation.</div>
+          <div class="hero-kicker">London morning</div>
+          <div class="hero-title">Overnight market brief</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        '<div class="discipline"><strong>Daily rule:</strong> read the linked event, note its publication time, then check whether the relevant TradingView chart moved afterwards. Timing helps you test an explanation; it does not prove causality.</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("## The overnight events")
-    st.caption("Maximum five. Paywalled publishers are excluded; links are limited to official or known free-access sources on a best-effort basis.")
+    st.markdown("## Key overnight events")
     if events.empty:
-        st.warning("No sufficiently relevant source-linked event was found in the overnight window. Do not manufacture a story: check the official calendars and live charts below.")
+        st.info("No qualifying overnight event is currently available.")
     else:
         for number, (_, row) in enumerate(events.iterrows(), start=1):
             render_event(row, number)
 
     st.markdown("## The market reaction check")
-    st.caption("TradingView serves the live/delayed prices directly. The application does not extract or relabel them.")
     components.html(tradingview_ticker_html(), height=92, scrolling=False)
 
     metric_columns = st.columns(5)
@@ -265,72 +228,20 @@ if page == "Overnight brief":
     for column, (label, row, context) in zip(metric_columns, essential_rows):
         with column:
             show_move(label, row, context)
-    st.caption("These are auditable official reference or closing observations—not a substitute for the overnight TradingView chart.")
-
-    st.markdown("## Understand the rates move in plain English")
-    us_two = snapshot_row(snapshot, "2Y", "Treasury")
-    us_ten = snapshot_row(snapshot, "10Y", "Treasury")
-    rates_available = (
-        us_two is not None
-        and us_ten is not None
-        and not pd.isna(us_two.get("change"))
-        and not pd.isna(us_ten.get("change"))
-    )
-    if rates_available:
-        explanation = explain_us_rate_moves(
-            two_year_level=float(us_two["level"]),
-            two_year_change_bp=float(us_two["change"]),
-            ten_year_level=float(us_ten["level"]),
-            ten_year_change_bp=float(us_ten["change"]),
-        )
-        with st.container(border=True):
-            st.markdown("**What happened**")
-            st.write(explanation["what_happened"])
-            st.markdown("**What the numbers mean**")
-            st.write(explanation["number_meaning"])
-            st.markdown("**One possible interpretation—not a proven cause**")
-            st.write(explanation["possible_interpretation"])
-            st.markdown("**How to check it yourself**")
-            st.write(explanation["how_to_verify"])
-    else:
-        st.info("The official US 2-year and 10-year changes are not both available, so no explanation is generated.")
-
-    with st.expander("Simple rates glossary"):
-        st.markdown(
-            """
-            - **Yield:** the annual return implied by a bond's price. Bond prices and yields normally move in opposite directions.
-            - **Basis point (bp):** 0.01 percentage point. A move from 4.00% to 4.06% is +6 bp.
-            - **2-year yield:** strongly influenced by expectations for Federal Reserve policy over the next few years.
-            - **10-year yield:** influenced by policy expectations plus longer-term growth, inflation and government-bond supply.
-            - **Yield curve:** a comparison of yields at different maturities, such as the 2-year and 10-year.
-            """
-        )
 
     st.markdown("## Your 60-second morning call")
     call = st.text_area(
-        "Write your call in your own words",
+        "Morning call",
         value="",
-        placeholder=(
-            "1. What happened?\n"
-            "2. Which markets moved?\n"
-            "3. What is your interpretation, and what evidence supports it?\n"
-            "4. Why does it matter to a FICC client?"
-        ),
+        placeholder="Write today's morning call…",
         height=210,
-        help="This stays blank so the reasoning and wording remain yours.",
-    )
-    interpretation = st.text_area(
-        "Your interpretation",
-        placeholder="What is the common theme? Which market confirms or contradicts it?",
-        height=90,
-    )
-    sources_checked = st.text_input(
-        "Sources you personally opened",
-        placeholder="Example: Reuters article, Fed release, US Treasury close, TradingView US 10Y chart",
     )
     if st.button("Save morning call"):
-        store.save_morning_call(str(date.today()), call, interpretation, sources_checked)
-        st.success("Morning call saved to your journal.")
+        if call.strip():
+            store.save_morning_call(str(date.today()), call, "", "")
+            st.success("Morning call saved.")
+        else:
+            st.warning("Write the morning call before saving it.")
 
 
 elif page == "Essential charts":
@@ -339,7 +250,6 @@ elif page == "Essential charts":
         <div class="hero">
           <div class="hero-kicker">One chart at a time</div>
           <div class="hero-title">The essential cross-asset screen</div>
-          <div class="hero-copy">Use the same small TradingView routine every day. The indicators stay fixed; today's questions change with the overnight event.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -429,97 +339,71 @@ elif page == "Today's trade pitch":
     st.markdown(
         """
         <div class="hero">
-          <div class="hero-kicker">Today's practice trade</div>
-          <div class="hero-title">Turn one event into one FICC pitch</div>
-          <div class="hero-copy">Build one specific idea each day and receive immediate feedback on its structure. Market-performance feedback belongs in the journal after prices have had time to move.</div>
+          <div class="hero-kicker">Trade entry</div>
+          <div class="hero-title">Record today's FICC pitch</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    event_options = ["No event selected"] + events["title"].tolist() if not events.empty else ["No event selected"]
-    selected_title = st.selectbox("Event or catalyst", event_options)
-    selected_event = None
-    if selected_title != "No event selected":
-        selected_event = events.loc[events["title"] == selected_title].iloc[0]
-        st.caption(f"Source: {selected_event['publisher']} · Markets: {', '.join(selected_event['asset_classes'])}")
+    event_options = ["No linked event"] + events["title"].tolist() if not events.empty else ["No linked event"]
+    linked_event = st.selectbox("Related overnight event", event_options)
+    if linked_event != "No linked event":
+        event_row = events.loc[events["title"] == linked_event].iloc[0]
+        st.caption(f"{event_row['publisher']} · {', '.join(event_row['asset_classes'])}")
+        st.link_button("Open source", event_row["url"])
 
-    suggested_trade = suggested_trade_for_event(selected_event)
-    persona_name = st.selectbox("Fictional client", list(CLIENT_PERSONAS))
-    trade_names = list(TRADE_TEMPLATES)
-    trade_name = st.selectbox(
-        "FICC expression or hedge",
-        trade_names,
-        index=trade_names.index(suggested_trade),
-    )
-    pitch = build_pitch(persona_name, trade_name)
-    event_context = selected_title if selected_event is not None else ""
+    with st.form("manual_pitch_form", clear_on_submit=True):
+        pitch_date = st.date_input("Pitch date", value=date.today())
+        top_left, top_middle, top_right = st.columns(3)
+        with top_left:
+            trade_name = st.text_input("Trade name")
+        with top_middle:
+            product = st.text_input("Asset class / product")
+        with top_right:
+            client = st.text_input("Client / audience")
 
-    st.markdown(
-        f"""
-        <div class="pitch-box">
-          <p><strong>1 · Client problem</strong><br>{pitch['client_problem']}</p>
-          <p><strong>2 · View</strong><br>{pitch['market_view']}</p>
-          <p><strong>3 · Expression</strong><br>{pitch['instrument']}</p>
-          <p><strong>4 · Catalyst</strong><br>{event_context}</p>
-          <p><strong>5 · Main risk</strong><br>{pitch['main_risk']}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        market_view = st.text_area("Thesis", height=100)
+        instrument = st.text_area("Direction and instrument", height=85)
+        catalyst = st.text_area("Catalyst", height=80)
 
-    st.markdown("### Complete today's details")
-    state_suffix = f"{event_options.index(selected_title)}_{list(CLIENT_PERSONAS).index(persona_name)}_{trade_names.index(trade_name)}"
-    market_view = st.text_area("Market view", value=pitch["market_view"], height=90, key=f"view_{state_suffix}")
-    instrument = st.text_area("Instrument and structure", value=pitch["instrument"], height=85, key=f"instrument_{state_suffix}")
-    catalyst = st.text_area("Verified catalyst", value=event_context, height=80, key=f"catalyst_{state_suffix}")
-    column_a, column_b = st.columns(2)
-    with column_a:
-        entry_level = st.text_input("Entry level", value=pitch["entry_level"], key=f"entry_{state_suffix}")
-        target = st.text_input("Target or hedge objective", value=pitch["target"], key=f"target_{state_suffix}")
-        time_horizon = st.text_input("Time horizon", value=pitch["time_horizon"], key=f"horizon_{state_suffix}")
-    with column_b:
-        invalidation = st.text_area("What invalidates the view?", value=pitch["invalidation"], height=85, key=f"invalidation_{state_suffix}")
-        main_risk = st.text_area("Main risks", value=pitch["main_risk"], height=85, key=f"risk_{state_suffix}")
-    client_relevance = st.text_area("Why it is relevant to this client", value=pitch["client_relevance"], height=90, key=f"relevance_{state_suffix}")
-    closing_question = st.text_input("Question to ask the client", value=pitch["closing_question"], key=f"question_{state_suffix}")
-    completed = pitch | {
-        "market_view": market_view,
-        "instrument": instrument,
-        "entry_level": entry_level,
-        "target": target,
-        "invalidation": invalidation,
-        "time_horizon": time_horizon,
-        "catalyst": catalyst,
-        "main_risk": main_risk,
-        "client_relevance": client_relevance,
-        "closing_question": closing_question,
-    }
+        level_left, level_middle, level_right, level_end = st.columns(4)
+        with level_left:
+            entry_level = st.text_input("Entry level")
+        with level_middle:
+            target = st.text_input("Target")
+        with level_right:
+            invalidation = st.text_input("Stop / invalidation")
+        with level_end:
+            time_horizon = st.text_input("Time horizon")
 
-    feedback = evaluate_pitch(completed, event_selected=selected_event is not None)
-    st.markdown("### Immediate pitch feedback")
-    st.progress(feedback["score"])
-    st.markdown(f"**{feedback['score']}/100 · {feedback['summary']}**")
-    feedback_left, feedback_right = st.columns(2)
-    with feedback_left:
-        st.markdown("**Already clear**")
-        if feedback["passed"]:
-            for item in feedback["passed"]:
-                st.markdown(f"- {item}")
+        main_risk = st.text_area("Main risks", height=80)
+        client_relevance = st.text_area("Client relevance", height=80)
+        closing_question = st.text_input("Client question")
+        submitted = st.form_submit_button("Save pitch to journal")
+
+    if submitted:
+        if not trade_name.strip() or not market_view.strip() or not instrument.strip():
+            st.warning("Complete the trade name, thesis, and direction/instrument before saving.")
         else:
-            st.caption("No section is specific enough yet.")
-    with feedback_right:
-        st.markdown("**Improve next**")
-        if feedback["improvements"]:
-            for item in feedback["improvements"]:
-                st.markdown(f"- {item}")
-        else:
-            st.caption("All structural checks passed. Challenge the evidence and trade risk once more.")
-    st.caption("This score checks completeness and interview discipline—not whether the trade will make money.")
-
-    if st.button("Save today's trade"):
-        store.save_pitch(completed, str(date.today()))
-        st.success("Today's trade saved. Add real outcome feedback later in the Journal.")
+            completed = {
+                "client": client,
+                "client_problem": "",
+                "trade": trade_name,
+                "product": product,
+                "market_view": market_view,
+                "instrument": instrument,
+                "entry_level": entry_level,
+                "target": target,
+                "invalidation": invalidation,
+                "time_horizon": time_horizon,
+                "catalyst": catalyst,
+                "main_risk": main_risk,
+                "client_relevance": client_relevance,
+                "closing_question": closing_question,
+            }
+            store.save_pitch(completed, str(pitch_date))
+            st.success("Pitch saved to the journal.")
     st.caption("Illustrative discussion only · Not investment advice · No suitability assessment")
 
 
@@ -527,9 +411,8 @@ elif page == "Journal":
     st.markdown(
         """
         <div class="hero">
-          <div class="hero-kicker">Build evidence of genuine interest</div>
-          <div class="hero-title">Your morning-call and pitch journal</div>
-          <div class="hero-copy">The project becomes valuable when you use it consistently and review where your interpretation was right or wrong.</div>
+          <div class="hero-kicker">Track record</div>
+          <div class="hero-title">Market journal</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -540,9 +423,10 @@ elif page == "Journal":
         st.info("No morning calls saved yet.")
     else:
         st.dataframe(
-            calls[["call_date", "summary", "interpretation", "sources_checked"]],
+            calls[["call_date", "summary"]],
             width="stretch",
             hide_index=True,
+            column_config={"call_date": "Date", "summary": "Morning call"},
         )
 
     pitches = store.list_pitches()
@@ -551,33 +435,141 @@ elif page == "Journal":
         st.info("No pitches saved yet.")
     else:
         st.dataframe(
-            pitches[["id", "pitch_date", "client", "trade", "entry_level", "target", "status", "performance"]],
+            pitches[[
+                "id", "pitch_date", "trade", "product", "instrument",
+                "entry_level", "target", "status", "performance",
+            ]],
             width="stretch",
             hide_index=True,
+            column_config={
+                "id": "ID",
+                "pitch_date": "Pitch date",
+                "trade": "Trade",
+                "product": "Product",
+                "instrument": "Direction / instrument",
+                "entry_level": "Entry",
+                "target": "Target",
+                "status": "Status",
+                "performance": "Latest performance",
+            },
         )
         pitch_id = st.selectbox(
-            "Pitch to review",
+            "Selected pitch",
             pitches["id"].tolist(),
             format_func=lambda value: f"#{value} · {pitches.loc[pitches['id'] == value, 'trade'].iloc[0]}",
         )
         selected = pitches.loc[pitches["id"] == pitch_id].iloc[0]
-        with st.form("review_form"):
-            status = st.selectbox("Status", ["Open", "Closed — thesis right", "Closed — thesis wrong", "Closed — risk limit", "Expired"])
-            performance = st.text_input("Performance", value=selected.get("performance") or "")
-            maximum_adverse_move = st.text_input("Maximum adverse movement", value=selected.get("maximum_adverse_move") or "")
-            catalyst_outcome = st.text_area("Did the catalyst occur?", value=selected.get("catalyst_outcome") or "")
-            thesis_review = st.text_area("What was right, wrong or incomplete?", value=selected.get("thesis_review") or "", height=120)
-            reviewed = st.form_submit_button("Save review")
-        if reviewed:
-            store.review_pitch(
-                int(pitch_id),
-                status=status,
-                performance=performance,
-                maximum_adverse_move=maximum_adverse_move,
-                catalyst_outcome=catalyst_outcome,
-                thesis_review=thesis_review,
+
+        with st.expander("Original pitch", expanded=True):
+            detail_rows = [
+                ("Date", selected["pitch_date"]),
+                ("Trade", selected["trade"]),
+                ("Product", selected.get("product") or "—"),
+                ("Client", selected.get("client") or "—"),
+                ("Thesis", selected.get("market_view") or "—"),
+                ("Direction / instrument", selected.get("instrument") or "—"),
+                ("Catalyst", selected.get("catalyst") or "—"),
+                ("Entry", selected.get("entry_level") or "—"),
+                ("Target", selected.get("target") or "—"),
+                ("Stop / invalidation", selected.get("invalidation") or "—"),
+                ("Horizon", selected.get("time_horizon") or "—"),
+                ("Main risk", selected.get("main_risk") or "—"),
+            ]
+            st.dataframe(
+                pd.DataFrame(detail_rows, columns=["Field", "Value"]),
+                width="stretch",
+                hide_index=True,
             )
-            st.success("Review saved.")
+
+        if st.session_state.pop("pitch_update_saved", False):
+            st.success("Performance update saved.")
+
+        st.markdown("### Add a performance update")
+        with st.form(f"performance_update_{pitch_id}", clear_on_submit=True):
+            update_left, update_middle, update_right = st.columns(3)
+            with update_left:
+                update_date = st.date_input("Update date", value=date.today())
+            with update_middle:
+                current_level = st.text_input("Current market level")
+            with update_right:
+                performance = st.text_input("Performance since entry")
+            status_options = [
+                "Open",
+                "Monitoring",
+                "Target reached",
+                "Stop / invalidation reached",
+                "Closed — thesis right",
+                "Closed — thesis wrong",
+                "Closed — risk limit",
+                "Expired",
+            ]
+            current_status = selected.get("status") or "Open"
+            status_index = status_options.index(current_status) if current_status in status_options else 0
+            update_status = st.selectbox("Status", status_options, index=status_index)
+            update_comment = st.text_area("Market update", height=90)
+            update_submitted = st.form_submit_button("Save performance update")
+        if update_submitted:
+            store.add_pitch_update(
+                int(pitch_id),
+                update_date=str(update_date),
+                current_level=current_level,
+                performance=performance,
+                status=update_status,
+                comment=update_comment,
+            )
+            st.session_state["pitch_update_saved"] = True
+            st.rerun()
+
+        updates = store.list_pitch_updates(int(pitch_id))
+        st.markdown("### Performance history")
+        if updates.empty:
+            st.info("No performance updates recorded for this pitch.")
+        else:
+            st.dataframe(
+                updates[["update_date", "current_level", "performance", "status", "comment"]],
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "update_date": "Date",
+                    "current_level": "Market level",
+                    "performance": "Performance",
+                    "status": "Status",
+                    "comment": "Market update",
+                },
+            )
+
+        with st.expander("Final review"):
+            with st.form(f"review_form_{pitch_id}"):
+                final_status = st.selectbox(
+                    "Final status",
+                    status_options,
+                    index=status_index,
+                    key=f"final_status_{pitch_id}",
+                )
+                maximum_adverse_move = st.text_input(
+                    "Maximum adverse movement",
+                    value=selected.get("maximum_adverse_move") or "",
+                )
+                catalyst_outcome = st.text_area(
+                    "Catalyst outcome",
+                    value=selected.get("catalyst_outcome") or "",
+                )
+                thesis_review = st.text_area(
+                    "Review",
+                    value=selected.get("thesis_review") or "",
+                    height=120,
+                )
+                reviewed = st.form_submit_button("Save final review")
+            if reviewed:
+                store.review_pitch(
+                    int(pitch_id),
+                    status=final_status,
+                    performance=selected.get("performance") or "",
+                    maximum_adverse_move=maximum_adverse_move,
+                    catalyst_outcome=catalyst_outcome,
+                    thesis_review=thesis_review,
+                )
+                st.success("Final review saved.")
 
 
 else:
@@ -586,7 +578,6 @@ else:
         <div class="hero">
           <div class="hero-kicker">Auditability before automation</div>
           <div class="hero-title">Sources and methodology</div>
-          <div class="hero-copy">Every number or event must remain traceable, correctly labelled and easy to challenge.</div>
         </div>
         """,
         unsafe_allow_html=True,
