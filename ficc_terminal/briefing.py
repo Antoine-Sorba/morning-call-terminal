@@ -96,6 +96,15 @@ TRADE_TEMPLATES = {
         "Oil may fall or the physical exposure may differ from the WTI basis, leaving premium and basis risk.",
         "Match the procurement window",
     ),
+    "Buy iTraxx Main protection": TradeTemplate(
+        "Buy iTraxx Main protection",
+        "European investment-grade credit index CDS",
+        "A verified risk event may justify temporary protection if credit has not fully reflected the deterioration in macro or geopolitical risk.",
+        "Buy five-year iTraxx Main protection after checking the licensed spread, carry and roll; size it against the client's credit exposure.",
+        "The selected overnight event, cash-credit confirmation, fund flows and changes in systemic-stress indicators.",
+        "The event may de-escalate, spreads may tighten, and the client pays carry while holding protection; ETF proxies can also give a misleading signal.",
+        "One to three months",
+    ),
 }
 
 
@@ -123,4 +132,3 @@ def build_pitch(persona_name: str, trade_name: str) -> dict[str, str]:
 
 def personas_as_records() -> list[dict[str, str]]:
     return [asdict(value) for value in CLIENT_PERSONAS.values()]
-
