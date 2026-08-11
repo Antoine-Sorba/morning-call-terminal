@@ -21,7 +21,8 @@ The application is deliberately **official-source first**. It does not pretend t
 - A blank morning-call workspace so the final wording and reasoning remain the user's own.
 - A visitor-facing latest morning call, with earlier calls available one date at a time in an optional archive and editing kept in a collapsed first-page workspace.
 - Fully manual FICC pitch entry with no pre-filled trade or recommendation.
-- An editable trade journal with dated performance updates, final post-trade reviews and optional persistent PostgreSQL storage for hosted deployments.
+- A concise, row-selectable positions journal with editable transaction detail, dated monitoring updates and structured close-out reviews.
+- A closed-trade track record showing pitch hit rate, profitable-position rate, average realised return and every recorded outcome.
 - Raw-response caching, stale-data flags and an auditable source register.
 
 The navigation is deliberately short:
@@ -29,7 +30,7 @@ The navigation is deliberately short:
 1. **Overnight brief** — five key events plus a concise 24-hour timeline so an earlier material story remains visible as new headlines arrive.
 2. **Essential charts** — native official-data history, a fixed market routine, direct live-chart links and one key check tailored to today's event.
 3. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
-4. **Journal** — edit saved pitches and monitor them through dated market and performance updates; morning calls are managed from the first page.
+4. **Journal** — scan a concise positions table, click a row for the full transaction, edit or monitor it, then record a structured close-out and review the resulting track record.
 5. **Sources** — audit data health, methodology and reuse constraints.
 
 ## Why the architecture is hybrid
@@ -119,6 +120,7 @@ For a public site, recheck each institution's current terms and do not add a dat
 - **5 minutes:** write the blank 60-second call in your own words.
 - **10 minutes:** write one original FICC pitch with an entry, target, invalidation and time horizon.
 - **2 minutes each following day:** record the current level, performance, status and a short market update.
+- **At close:** record the outcome, close date, realised return and final review; use consistent hypothetical sizing so returns remain comparable across asset classes.
 
 The app should reduce searching time, but it must not automate away your judgement. That judgement is what makes the project valuable in interviews.
 
