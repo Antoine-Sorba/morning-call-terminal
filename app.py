@@ -15,6 +15,12 @@ from ficc_terminal.analytics import build_snapshot
 from ficc_terminal.cache import OfficialHttpClient
 from ficc_terminal.charts import build_essential_chart
 from ficc_terminal.daily_focus import build_daily_focus
+from ficc_terminal.journal import (
+    CLOSED_PITCH_STATUSES,
+    build_closed_performance,
+    build_positions_table,
+    performance_summary,
+)
 from ficc_terminal.models import MarketDataset
 from ficc_terminal.news import fetch_market_news, rank_important_events, rank_market_events
 from ficc_terminal.official_sources import (
@@ -90,18 +96,19 @@ def get_client() -> OfficialHttpClient:
     return OfficialHttpClient(cache_dir=Path("data/raw"), timeout=15)
 
 
-JOURNAL_SCHEMA_VERSION = 5
+JOURNAL_SCHEMA_VERSION = 6
 REQUIRED_JOURNAL_METHODS = (
     "add_pitch_update",
     "list_pitch_updates",
     "list_morning_calls",
+    "review_pitch",
     "save_morning_call",
     "update_pitch",
 )
 
 
 @st.cache_resource
-def get_journal_store_v5(
+def get_journal_store_v6(
     schema_version: int,
     database_url: str,
 ) -> JournalStore | PostgresJournalStore:
@@ -131,13 +138,13 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
     """
 
     database_url = configured_database_url()
-    journal = get_journal_store_v5(JOURNAL_SCHEMA_VERSION, database_url)
+    journal = get_journal_store_v6(JOURNAL_SCHEMA_VERSION, database_url)
     if all(hasattr(journal, method) for method in REQUIRED_JOURNAL_METHODS):
         return journal
     if hasattr(journal, "close"):
         journal.close()
-    get_journal_store_v5.clear()
-    journal = get_journal_store_v5(JOURNAL_SCHEMA_VERSION, database_url)
+    get_journal_store_v6.clear()
+    journal = get_journal_store_v6(JOURNAL_SCHEMA_VERSION, database_url)
     missing = [method for method in REQUIRED_JOURNAL_METHODS if not hasattr(journal, method)]
     if missing:
         raise RuntimeError(f"Journal migration incomplete: {', '.join(missing)}")
@@ -343,6 +350,103 @@ def render_morning_call_editor(
                 st.rerun()
             else:
                 st.warning("Write the morning call before saving it.")
+
+
+def percentage_label(value: float | int | None, *, decimals: int = 1) -> str:
+    if value is None or pd.isna(value):
+        return "—"
+    return f"{float(value):.{decimals}f}%"
+
+
+def render_pitch_performance(pitches: pd.DataFrame) -> None:
+    st.markdown("## Performance")
+    closed = build_closed_performance(pitches)
+    if closed.empty:
+        st.info("Performance figures will appear after the first position is closed.")
+        return
+
+    summary = performance_summary(closed)
+    metric_columns = st.columns(4)
+    metric_columns[0].metric("Closed positions", summary["closed_count"])
+    metric_columns[1].metric(
+        "Good-pitch rate",
+        percentage_label(summary["good_pitch_rate"], decimals=0),
+    )
+    metric_columns[2].metric(
+        "Profitable positions",
+        percentage_label(summary["profitable_rate"], decimals=0),
+    )
+    metric_columns[3].metric(
+        "Average return",
+        percentage_label(summary["average_return"], decimals=2),
+    )
+    st.caption(
+        "Good-pitch rate counts positions marked Target reached or Thesis right. "
+        "Return figures use the realised percentages entered when positions are closed; "
+        "use the same hypothetical risk budget across trades for comparability."
+    )
+    st.dataframe(
+        closed.drop(columns="id"),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Close date": st.column_config.TextColumn("Closed", width="small"),
+            "Position": st.column_config.TextColumn("Position", width="medium"),
+            "Product": st.column_config.TextColumn("Product", width="small"),
+            "Assessment": st.column_config.TextColumn("Pitch assessment", width="small"),
+            "Return (%)": st.column_config.NumberColumn(
+                "Realised return",
+                format="%.2f%%",
+            ),
+            "Status": st.column_config.TextColumn("Outcome", width="medium"),
+        },
+    )
+
+
+def render_position_detail(selected: pd.Series) -> None:
+    with st.container(border=True):
+        header, status = st.columns([4, 1])
+        with header:
+            st.markdown(f"### {field_text(selected['trade'])}")
+            context = " · ".join(
+                value
+                for value in [
+                    field_text(selected.get("pitch_date")),
+                    field_text(selected.get("product")),
+                    field_text(selected.get("client")),
+                ]
+                if value
+            )
+            if context:
+                st.caption(context)
+        with status:
+            st.markdown(f"**{field_text(selected.get('status')) or 'Open'}**")
+
+        st.markdown("**Position taken**")
+        st.write(field_text(selected.get("instrument")) or "—")
+        thesis_column, catalyst_column = st.columns(2)
+        with thesis_column:
+            st.markdown("**Thesis**")
+            st.write(field_text(selected.get("market_view")) or "—")
+        with catalyst_column:
+            st.markdown("**Catalyst**")
+            st.write(field_text(selected.get("catalyst")) or "—")
+
+        entry_column, target_column, stop_column, horizon_column = st.columns(4)
+        position_terms = (
+            (entry_column, "Entry", selected.get("entry_level")),
+            (target_column, "Target", selected.get("target")),
+            (stop_column, "Invalidation", selected.get("invalidation")),
+            (horizon_column, "Horizon", selected.get("time_horizon")),
+        )
+        for column, label, value in position_terms:
+            with column:
+                st.caption(label)
+                st.markdown(f"**{field_text(value) or '—'}**")
+
+        if field_text(selected.get("main_risk")):
+            st.markdown("**Main risk**")
+            st.write(field_text(selected.get("main_risk")))
 
 
 def market_timeline_frame(
@@ -693,222 +797,276 @@ elif page == "Journal":
     )
 
     pitches = store.list_pitches()
-    st.markdown("### Saved pitches")
+    render_pitch_performance(pitches)
+    st.markdown("## Positions")
     if pitches.empty:
-        st.info("No pitches saved yet.")
+        st.info("No positions recorded yet.")
     else:
-        st.dataframe(
-            pitches[[
-                "id", "pitch_date", "trade", "product", "instrument",
-                "entry_level", "target", "status", "performance",
-            ]],
+        positions = build_positions_table(pitches)
+        table_selection = st.dataframe(
+            positions,
             width="stretch",
             hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="positions_table",
             column_config={
-                "id": "ID",
-                "pitch_date": "Pitch date",
-                "trade": "Trade",
-                "product": "Product",
-                "instrument": "Direction / instrument",
-                "entry_level": "Entry",
-                "target": "Target",
-                "status": "Status",
-                "performance": "Latest performance",
+                "id": None,
+                "Date": st.column_config.TextColumn("Date", width="small"),
+                "Position": st.column_config.TextColumn("Position taken", width="large"),
+                "Product": st.column_config.TextColumn("Product", width="small"),
+                "Entry": st.column_config.TextColumn("Entry", width="small"),
+                "Status": st.column_config.TextColumn("Status", width="medium"),
+                "Return (%)": st.column_config.NumberColumn(
+                    "Return",
+                    format="%.2f%%",
+                    width="small",
+                ),
             },
         )
-        pitch_id = st.selectbox(
-            "Selected pitch",
-            pitches["id"].tolist(),
-            format_func=lambda value: f"#{value} · {pitches.loc[pitches['id'] == value, 'trade'].iloc[0]}",
-        )
-        selected = pitches.loc[pitches["id"] == pitch_id].iloc[0]
-
-        if st.session_state.pop("pitch_edit_saved", False):
-            st.success("Pitch updated.")
-
-        with st.expander("Edit pitch"):
-            with st.form(f"edit_pitch_{pitch_id}"):
-                edit_date = st.date_input(
-                    "Pitch date",
-                    value=pd.to_datetime(selected["pitch_date"]).date(),
-                )
-                edit_left, edit_middle, edit_right = st.columns(3)
-                with edit_left:
-                    edit_trade = st.text_input("Trade name", value=field_text(selected["trade"]))
-                with edit_middle:
-                    edit_product = st.text_input("Asset class / product", value=field_text(selected["product"]))
-                with edit_right:
-                    edit_client = st.text_input("Client / audience", value=field_text(selected["client"]))
-                edit_view = st.text_area("Thesis", value=field_text(selected["market_view"]), height=100)
-                edit_instrument = st.text_area(
-                    "Direction and instrument",
-                    value=field_text(selected["instrument"]),
-                    height=85,
-                )
-                edit_catalyst = st.text_area("Catalyst", value=field_text(selected["catalyst"]), height=80)
-                edit_level, edit_target_column, edit_stop, edit_horizon = st.columns(4)
-                with edit_level:
-                    edit_entry = st.text_input("Entry level", value=field_text(selected["entry_level"]))
-                with edit_target_column:
-                    edit_target = st.text_input("Target", value=field_text(selected["target"]))
-                with edit_stop:
-                    edit_invalidation = st.text_input(
-                        "Stop / invalidation",
-                        value=field_text(selected["invalidation"]),
-                    )
-                with edit_horizon:
-                    edit_time_horizon = st.text_input(
-                        "Time horizon",
-                        value=field_text(selected["time_horizon"]),
-                    )
-                edit_risk = st.text_area("Main risks", value=field_text(selected["main_risk"]), height=80)
-                edit_relevance = st.text_area(
-                    "Client relevance",
-                    value=field_text(selected["client_relevance"]),
-                    height=80,
-                )
-                edit_question = st.text_input(
-                    "Client question",
-                    value=field_text(selected["closing_question"]),
-                )
-                edit_submitted = st.form_submit_button("Save changes")
-            if edit_submitted:
-                if not edit_trade.strip() or not edit_view.strip() or not edit_instrument.strip():
-                    st.warning("Complete the trade name, thesis, and direction/instrument before saving.")
-                else:
-                    store.update_pitch(
-                        int(pitch_id),
-                        {
-                            "client": edit_client,
-                            "client_problem": "",
-                            "trade": edit_trade,
-                            "product": edit_product,
-                            "market_view": edit_view,
-                            "instrument": edit_instrument,
-                            "entry_level": edit_entry,
-                            "target": edit_target,
-                            "invalidation": edit_invalidation,
-                            "time_horizon": edit_time_horizon,
-                            "catalyst": edit_catalyst,
-                            "main_risk": edit_risk,
-                            "client_relevance": edit_relevance,
-                            "closing_question": edit_question,
-                        },
-                        str(edit_date),
-                    )
-                    st.session_state["pitch_edit_saved"] = True
-                    st.rerun()
-
-        with st.expander("Original pitch", expanded=True):
-            detail_rows = [
-                ("Date", selected["pitch_date"]),
-                ("Trade", selected["trade"]),
-                ("Product", field_text(selected.get("product")) or "—"),
-                ("Client", field_text(selected.get("client")) or "—"),
-                ("Thesis", field_text(selected.get("market_view")) or "—"),
-                ("Direction / instrument", field_text(selected.get("instrument")) or "—"),
-                ("Catalyst", field_text(selected.get("catalyst")) or "—"),
-                ("Entry", field_text(selected.get("entry_level")) or "—"),
-                ("Target", field_text(selected.get("target")) or "—"),
-                ("Stop / invalidation", field_text(selected.get("invalidation")) or "—"),
-                ("Horizon", field_text(selected.get("time_horizon")) or "—"),
-                ("Main risk", field_text(selected.get("main_risk")) or "—"),
-            ]
-            st.dataframe(
-                pd.DataFrame(detail_rows, columns=["Field", "Value"]),
-                width="stretch",
-                hide_index=True,
-            )
-
-        if st.session_state.pop("pitch_update_saved", False):
-            st.success("Performance update saved.")
-
-        st.markdown("### Add a performance update")
-        with st.form(f"performance_update_{pitch_id}", clear_on_submit=True):
-            update_left, update_middle, update_right = st.columns(3)
-            with update_left:
-                update_date = st.date_input("Update date", value=date.today())
-            with update_middle:
-                current_level = st.text_input("Current market level")
-            with update_right:
-                performance = st.text_input("Performance since entry")
-            status_options = [
-                "Open",
-                "Monitoring",
-                "Target reached",
-                "Stop / invalidation reached",
-                "Closed — thesis right",
-                "Closed — thesis wrong",
-                "Closed — risk limit",
-                "Expired",
-            ]
-            current_status = selected.get("status") or "Open"
-            status_index = status_options.index(current_status) if current_status in status_options else 0
-            update_status = st.selectbox("Status", status_options, index=status_index)
-            update_comment = st.text_area("Market update", height=90)
-            update_submitted = st.form_submit_button("Save performance update")
-        if update_submitted:
-            store.add_pitch_update(
-                int(pitch_id),
-                update_date=str(update_date),
-                current_level=current_level,
-                performance=performance,
-                status=update_status,
-                comment=update_comment,
-            )
-            st.session_state["pitch_update_saved"] = True
-            st.rerun()
-
-        updates = store.list_pitch_updates(int(pitch_id))
-        st.markdown("### Performance history")
-        if updates.empty:
-            st.info("No performance updates recorded for this pitch.")
+        selected_rows = table_selection.selection.rows
+        if not selected_rows:
+            st.caption("Click a position in the table to open its full detail and controls.")
         else:
-            st.dataframe(
-                updates[["update_date", "current_level", "performance", "status", "comment"]],
-                width="stretch",
-                hide_index=True,
-                column_config={
-                    "update_date": "Date",
-                    "current_level": "Market level",
-                    "performance": "Performance",
-                    "status": "Status",
-                    "comment": "Market update",
-                },
-            )
+            selected_table_row = positions.iloc[selected_rows[0]]
+            pitch_id = int(selected_table_row["id"])
+            selected = pitches.loc[pitches["id"] == pitch_id].iloc[0]
 
-        with st.expander("Final review"):
-            with st.form(f"review_form_{pitch_id}"):
-                final_status = st.selectbox(
-                    "Final status",
-                    status_options,
-                    index=status_index,
-                    key=f"final_status_{pitch_id}",
+            for state_key, message in (
+                ("pitch_edit_saved", "Position updated."),
+                ("pitch_update_saved", "Market update saved."),
+                ("pitch_review_saved", "Position closed and performance recorded."),
+            ):
+                if st.session_state.pop(state_key, False):
+                    st.success(message)
+
+            render_position_detail(selected)
+
+            with st.expander("Edit this position"):
+                with st.form(f"edit_pitch_{pitch_id}"):
+                    edit_date = st.date_input(
+                        "Pitch date",
+                        value=pd.to_datetime(selected["pitch_date"]).date(),
+                    )
+                    edit_left, edit_middle, edit_right = st.columns(3)
+                    with edit_left:
+                        edit_trade = st.text_input(
+                            "Trade name",
+                            value=field_text(selected["trade"]),
+                        )
+                    with edit_middle:
+                        edit_product = st.text_input(
+                            "Asset class / product",
+                            value=field_text(selected["product"]),
+                        )
+                    with edit_right:
+                        edit_client = st.text_input(
+                            "Client / audience",
+                            value=field_text(selected["client"]),
+                        )
+                    edit_instrument = st.text_area(
+                        "Position taken",
+                        value=field_text(selected["instrument"]),
+                        height=80,
+                    )
+                    edit_view = st.text_area(
+                        "Thesis",
+                        value=field_text(selected["market_view"]),
+                        height=100,
+                    )
+                    edit_catalyst = st.text_area(
+                        "Catalyst",
+                        value=field_text(selected["catalyst"]),
+                        height=80,
+                    )
+                    edit_level, edit_target_column, edit_stop, edit_horizon = st.columns(4)
+                    with edit_level:
+                        edit_entry = st.text_input(
+                            "Entry level",
+                            value=field_text(selected["entry_level"]),
+                        )
+                    with edit_target_column:
+                        edit_target = st.text_input(
+                            "Target",
+                            value=field_text(selected["target"]),
+                        )
+                    with edit_stop:
+                        edit_invalidation = st.text_input(
+                            "Stop / invalidation",
+                            value=field_text(selected["invalidation"]),
+                        )
+                    with edit_horizon:
+                        edit_time_horizon = st.text_input(
+                            "Time horizon",
+                            value=field_text(selected["time_horizon"]),
+                        )
+                    edit_risk = st.text_area(
+                        "Main risks",
+                        value=field_text(selected["main_risk"]),
+                        height=80,
+                    )
+                    edit_relevance = st.text_area(
+                        "Client relevance",
+                        value=field_text(selected["client_relevance"]),
+                        height=80,
+                    )
+                    edit_question = st.text_input(
+                        "Client question",
+                        value=field_text(selected["closing_question"]),
+                    )
+                    edit_submitted = st.form_submit_button("Save position changes")
+                if edit_submitted:
+                    if not edit_trade.strip() or not edit_view.strip() or not edit_instrument.strip():
+                        st.warning(
+                            "Complete the trade name, thesis and position before saving."
+                        )
+                    else:
+                        store.update_pitch(
+                            pitch_id,
+                            {
+                                "client": edit_client,
+                                "client_problem": "",
+                                "trade": edit_trade,
+                                "product": edit_product,
+                                "market_view": edit_view,
+                                "instrument": edit_instrument,
+                                "entry_level": edit_entry,
+                                "target": edit_target,
+                                "invalidation": edit_invalidation,
+                                "time_horizon": edit_time_horizon,
+                                "catalyst": edit_catalyst,
+                                "main_risk": edit_risk,
+                                "client_relevance": edit_relevance,
+                                "closing_question": edit_question,
+                            },
+                            str(edit_date),
+                        )
+                        st.session_state["pitch_edit_saved"] = True
+                        st.rerun()
+
+            is_closed = field_text(selected.get("status")) in CLOSED_PITCH_STATUSES
+            if not is_closed:
+                with st.expander("Add a monitoring update"):
+                    with st.form(f"performance_update_{pitch_id}", clear_on_submit=True):
+                        update_left, update_middle, update_right = st.columns(3)
+                        with update_left:
+                            update_date = st.date_input("Update date", value=date.today())
+                        with update_middle:
+                            current_level = st.text_input("Current market level")
+                        with update_right:
+                            performance = st.text_input("Performance since entry")
+                        update_status = st.selectbox("Status", ["Open", "Monitoring"])
+                        update_comment = st.text_area("Market update", height=90)
+                        update_submitted = st.form_submit_button("Save market update")
+                    if update_submitted:
+                        store.add_pitch_update(
+                            pitch_id,
+                            update_date=str(update_date),
+                            current_level=current_level,
+                            performance=performance,
+                            status=update_status,
+                            comment=update_comment,
+                        )
+                        st.session_state["pitch_update_saved"] = True
+                        st.rerun()
+
+            updates = store.list_pitch_updates(pitch_id)
+            if not updates.empty:
+                with st.expander(f"View monitoring history ({len(updates)})"):
+                    st.dataframe(
+                        updates[[
+                            "update_date",
+                            "current_level",
+                            "performance",
+                            "status",
+                            "comment",
+                        ]],
+                        width="stretch",
+                        hide_index=True,
+                        column_config={
+                            "update_date": "Date",
+                            "current_level": "Market level",
+                            "performance": "Performance",
+                            "status": "Status",
+                            "comment": "Market update",
+                        },
+                    )
+
+            with st.expander("Close position and record outcome"):
+                current_status = field_text(selected.get("status"))
+                final_status_index = (
+                    list(CLOSED_PITCH_STATUSES).index(current_status)
+                    if current_status in CLOSED_PITCH_STATUSES
+                    else 0
                 )
-                maximum_adverse_move = st.text_input(
-                    "Maximum adverse movement",
-                    value=selected.get("maximum_adverse_move") or "",
+                existing_close_date = pd.to_datetime(
+                    selected.get("closed_date"),
+                    errors="coerce",
                 )
-                catalyst_outcome = st.text_area(
-                    "Catalyst outcome",
-                    value=selected.get("catalyst_outcome") or "",
+                close_date_value = (
+                    existing_close_date.date()
+                    if pd.notna(existing_close_date)
+                    else date.today()
                 )
-                thesis_review = st.text_area(
-                    "Review",
-                    value=selected.get("thesis_review") or "",
-                    height=120,
+                existing_return = selected.get("realized_return_pct")
+                return_text = (
+                    ""
+                    if existing_return is None or pd.isna(existing_return)
+                    else f"{float(existing_return):g}"
                 )
-                reviewed = st.form_submit_button("Save final review")
-            if reviewed:
-                store.review_pitch(
-                    int(pitch_id),
-                    status=final_status,
-                    performance=selected.get("performance") or "",
-                    maximum_adverse_move=maximum_adverse_move,
-                    catalyst_outcome=catalyst_outcome,
-                    thesis_review=thesis_review,
-                )
-                st.success("Final review saved.")
+                with st.form(f"review_form_{pitch_id}"):
+                    close_left, close_middle, close_right = st.columns(3)
+                    with close_left:
+                        final_status = st.selectbox(
+                            "Outcome",
+                            list(CLOSED_PITCH_STATUSES),
+                            index=final_status_index,
+                        )
+                    with close_middle:
+                        close_date = st.date_input(
+                            "Close date",
+                            value=close_date_value,
+                        )
+                    with close_right:
+                        realized_return = st.text_input(
+                            "Realised return (%)",
+                            value=return_text,
+                            placeholder="e.g. +1.50 or -0.75",
+                        )
+                    maximum_adverse_move = st.text_input(
+                        "Maximum adverse movement",
+                        value=field_text(selected.get("maximum_adverse_move")),
+                    )
+                    catalyst_outcome = st.text_area(
+                        "What happened to the catalyst?",
+                        value=field_text(selected.get("catalyst_outcome")),
+                    )
+                    thesis_review = st.text_area(
+                        "Final review",
+                        value=field_text(selected.get("thesis_review")),
+                        height=120,
+                    )
+                    reviewed = st.form_submit_button("Close position")
+                if reviewed:
+                    try:
+                        parsed_return = float(
+                            realized_return.strip().replace("%", "").replace(",", ".")
+                        )
+                    except ValueError:
+                        st.warning("Enter the realised return as a number, such as 1.50 or -0.75.")
+                    else:
+                        store.review_pitch(
+                            pitch_id,
+                            status=final_status,
+                            performance=field_text(selected.get("performance")),
+                            maximum_adverse_move=maximum_adverse_move,
+                            catalyst_outcome=catalyst_outcome,
+                            thesis_review=thesis_review,
+                            closed_date=str(close_date),
+                            realized_return_pct=parsed_return,
+                        )
+                        st.session_state["pitch_review_saved"] = True
+                        st.rerun()
 
 
 else:
