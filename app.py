@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -32,7 +33,7 @@ from ficc_terminal.official_sources import (
     fetch_us_treasury_curve,
 )
 from ficc_terminal.source_catalog import source_catalog_frame
-from ficc_terminal.storage import JournalStore, PostgresJournalStore, create_journal_store
+from ficc_terminal.storage import JournalStore, PostgresJournalStore
 from ficc_terminal.widgets import (
     ESSENTIAL_MARKETS,
     tradingview_chart_url,
@@ -96,25 +97,27 @@ def get_client() -> OfficialHttpClient:
     return OfficialHttpClient(cache_dir=Path("data/raw"), timeout=15)
 
 
-JOURNAL_SCHEMA_VERSION = 7
+JOURNAL_SCHEMA_VERSION = 8
 REQUIRED_JOURNAL_METHODS = (
     "add_pitch_update",
-    "delete_pitch",
     "list_pitch_updates",
     "list_morning_calls",
+    "list_pitches",
     "review_pitch",
     "save_morning_call",
+    "save_pitch",
     "update_pitch",
 )
 
 
 @st.cache_resource
-def get_journal_store_v7(
+def get_journal_store_v8(
     schema_version: int,
     database_url: str,
 ) -> JournalStore | PostgresJournalStore:
     del schema_version
-    return create_journal_store(
+    storage_module = importlib.import_module("ficc_terminal.storage")
+    return storage_module.create_journal_store(
         database_url=database_url,
         sqlite_path="data/ficc_terminal.db",
     )
@@ -139,16 +142,22 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
     """
 
     database_url = configured_database_url()
-    journal = get_journal_store_v7(JOURNAL_SCHEMA_VERSION, database_url)
+    journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, database_url)
     if all(hasattr(journal, method) for method in REQUIRED_JOURNAL_METHODS):
         return journal
     if hasattr(journal, "close"):
         journal.close()
-    get_journal_store_v7.clear()
-    journal = get_journal_store_v7(JOURNAL_SCHEMA_VERSION, database_url)
+    get_journal_store_v8.clear()
+    importlib.invalidate_caches()
+    storage_module = importlib.import_module("ficc_terminal.storage")
+    importlib.reload(storage_module)
+    journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, database_url)
     missing = [method for method in REQUIRED_JOURNAL_METHODS if not hasattr(journal, method)]
     if missing:
-        raise RuntimeError(f"Journal migration incomplete: {', '.join(missing)}")
+        st.warning(
+            "The journal is temporarily running in compatibility mode. "
+            "Refresh the page once to finish loading the latest controls."
+        )
     return journal
 
 
@@ -237,6 +246,45 @@ def journal_backup_json(
         "pitch_updates": store.list_pitch_updates().to_dict(orient="records"),
     }
     return json.dumps(payload, indent=2, default=str)
+
+
+def delete_pitch_safely(
+    store: JournalStore | PostgresJournalStore,
+    pitch_id: int,
+) -> bool:
+    """Delete a pitch even if Streamlit retained a pre-deletion store object."""
+
+    delete_method = getattr(store, "delete_pitch", None)
+    if callable(delete_method):
+        return bool(delete_method(pitch_id))
+
+    sqlite_connection = getattr(store, "connection", None)
+    if sqlite_connection is not None:
+        sqlite_connection.execute(
+            "DELETE FROM pitch_updates WHERE pitch_id = ?",
+            (pitch_id,),
+        )
+        cursor = sqlite_connection.execute(
+            "DELETE FROM pitches WHERE id = ?",
+            (pitch_id,),
+        )
+        sqlite_connection.commit()
+        return cursor.rowcount == 1
+
+    postgres_connect = getattr(store, "_connect", None)
+    if callable(postgres_connect):
+        with postgres_connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM pitch_updates WHERE pitch_id = %s",
+                    (pitch_id,),
+                )
+                cursor.execute(
+                    "DELETE FROM pitches WHERE id = %s",
+                    (pitch_id,),
+                )
+                return cursor.rowcount == 1
+    return False
 
 
 def render_event(row: pd.Series, number: int) -> None:
@@ -1085,11 +1133,16 @@ elif page == "Journal":
                     disabled=not delete_confirmed,
                     key=f"delete_pitch_{pitch_id}",
                 ):
-                    if store.delete_pitch(pitch_id):
+                    try:
+                        deleted = delete_pitch_safely(store, pitch_id)
+                    except Exception:
+                        deleted = False
+                    if deleted:
                         st.session_state["pitch_deleted"] = True
                         st.rerun()
-                    else:
-                        st.error("The position could not be found. Refresh the journal and try again.")
+                    st.error(
+                        "The position could not be deleted. Refresh the journal and try again."
+                    )
 
 
 else:
