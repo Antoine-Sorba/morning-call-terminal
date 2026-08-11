@@ -21,7 +21,7 @@ The application is deliberately **official-source first**. It does not pretend t
 - A blank morning-call workspace so the final wording and reasoning remain the user's own.
 - A visitor-facing latest morning call, with earlier calls available one date at a time in an optional archive and editing kept in a collapsed first-page workspace.
 - Fully manual FICC pitch entry with no pre-filled trade or recommendation.
-- A concise, row-selectable positions journal with editable transaction detail, dated monitoring updates and structured close-out reviews.
+- A concise, row-selectable positions journal with editable transaction detail, confirmed deletion, dated monitoring updates and structured close-out reviews.
 - A closed-trade track record showing pitch hit rate, profitable-position rate, average realised return and every recorded outcome.
 - Raw-response caching, stale-data flags and an auditable source register.
 
