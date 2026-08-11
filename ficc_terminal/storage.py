@@ -117,6 +117,37 @@ class JournalStore:
     def list_pitches(self) -> pd.DataFrame:
         return pd.read_sql_query("SELECT * FROM pitches ORDER BY pitch_date DESC, id DESC", self.connection)
 
+    def update_pitch(
+        self,
+        pitch_id: int,
+        pitch: dict[str, str],
+        pitch_date: str,
+    ) -> bool:
+        columns = [
+            "client",
+            "client_problem",
+            "trade",
+            "product",
+            "market_view",
+            "instrument",
+            "entry_level",
+            "target",
+            "invalidation",
+            "time_horizon",
+            "catalyst",
+            "main_risk",
+            "client_relevance",
+            "closing_question",
+        ]
+        assignments = ", ".join(f"{column} = ?" for column in columns)
+        values = [pitch.get(column, "") for column in columns]
+        cursor = self.connection.execute(
+            f"UPDATE pitches SET pitch_date = ?, {assignments} WHERE id = ?",
+            [pitch_date, *values, pitch_id],
+        )
+        self.connection.commit()
+        return cursor.rowcount == 1
+
     def list_morning_calls(self) -> pd.DataFrame:
         return pd.read_sql_query(
             "SELECT * FROM morning_calls ORDER BY call_date DESC, id DESC", self.connection
