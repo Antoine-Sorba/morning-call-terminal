@@ -68,3 +68,35 @@ def test_daily_pitch_updates_are_kept_as_history(tmp_path) -> None:
     pitch = store.list_pitches().iloc[0]
     assert pitch["status"] == "Monitoring"
     assert pitch["performance"] == "+3 bp"
+
+
+def test_saved_pitch_can_be_edited_without_losing_updates(tmp_path) -> None:
+    store = JournalStore(tmp_path / "journal.db")
+    original = {
+        "client": "Macro fund",
+        "trade": "Pay US 10Y",
+        "product": "USD swaps",
+        "market_view": "Yields may rise.",
+        "instrument": "Pay fixed in ten-year swaps.",
+        "entry_level": "4.20%",
+        "target": "4.40%",
+        "invalidation": "4.10%",
+        "time_horizon": "Two weeks",
+        "catalyst": "Inflation data",
+        "main_risk": "Growth shock",
+    }
+    pitch_id = store.save_pitch(original, "2026-08-11")
+    store.add_pitch_update(
+        pitch_id,
+        update_date="2026-08-12",
+        current_level="4.25%",
+        performance="+5 bp",
+        status="Monitoring",
+        comment="Yield moved higher.",
+    )
+    edited = original | {"trade": "Pay US 10Y swap", "target": "4.45%"}
+    assert store.update_pitch(pitch_id, edited, "2026-08-11")
+    saved = store.list_pitches().iloc[0]
+    assert saved["trade"] == "Pay US 10Y swap"
+    assert saved["target"] == "4.45%"
+    assert len(store.list_pitch_updates(pitch_id)) == 1
