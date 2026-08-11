@@ -144,6 +144,33 @@ def test_saved_pitch_can_be_edited_without_losing_updates(tmp_path) -> None:
     assert len(store.list_pitch_updates(pitch_id)) == 1
 
 
+def test_pitch_can_be_deleted_with_its_monitoring_history(tmp_path) -> None:
+    store = JournalStore(tmp_path / "journal.db")
+    pitch_id = store.save_pitch(
+        {
+            "client": "Macro hedge fund",
+            "trade": "US 2s10s steepener",
+            "market_view": "The curve may steepen.",
+            "instrument": "Receive two-year and pay ten-year swaps.",
+        },
+        "2026-08-11",
+    )
+    store.add_pitch_update(
+        pitch_id,
+        update_date="2026-08-12",
+        current_level="-5 bp",
+        performance="+2 bp",
+        status="Monitoring",
+        comment="The curve steepened.",
+    )
+
+    assert store.delete_pitch(pitch_id)
+    assert store.list_pitches().empty
+    assert store.list_pitch_updates(pitch_id).empty
+    assert not store.delete_pitch(pitch_id)
+    store.close()
+
+
 def test_two_store_instances_can_write_without_locking(tmp_path) -> None:
     database = tmp_path / "journal.db"
     first = JournalStore(database)
