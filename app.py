@@ -15,7 +15,7 @@ from ficc_terminal.analytics import build_snapshot
 from ficc_terminal.cache import OfficialHttpClient
 from ficc_terminal.daily_focus import build_daily_focus
 from ficc_terminal.models import MarketDataset
-from ficc_terminal.news import fetch_market_news, rank_market_events
+from ficc_terminal.news import fetch_market_news, rank_important_events, rank_market_events
 from ficc_terminal.official_sources import (
     fetch_bls_macro,
     fetch_ecb_fx,
@@ -137,9 +137,12 @@ def load_datasets() -> dict[str, MarketDataset]:
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def load_overnight_events() -> pd.DataFrame:
+def load_market_events() -> tuple[pd.DataFrame, pd.DataFrame]:
     raw = fetch_market_news(get_client())
-    return rank_market_events(raw, limit=5)
+    return (
+        rank_market_events(raw, limit=5),
+        rank_important_events(raw, hours=24, limit=20),
+    )
 
 
 def snapshot_row(
@@ -189,6 +192,35 @@ def render_event(row: pd.Series, number: int) -> None:
         st.link_button("Open source", row["url"], width="stretch")
 
 
+def market_timeline_frame(
+    timeline: pd.DataFrame,
+    key_events: pd.DataFrame,
+) -> pd.DataFrame:
+    columns = ["time", "priority", "event", "markets", "source", "link"]
+    if timeline.empty:
+        return pd.DataFrame(columns=columns)
+
+    key_stories = (
+        set(key_events["story_key"].dropna())
+        if "story_key" in key_events.columns
+        else set()
+    )
+    rows = []
+    for _, row in timeline.iterrows():
+        published = pd.to_datetime(row["published"], utc=True).tz_convert("Europe/London")
+        rows.append(
+            {
+                "time": published.strftime("%d %b · %H:%M"),
+                "priority": "Key" if row.get("story_key") in key_stories else "Important",
+                "event": row["display_title"],
+                "markets": " · ".join(row["asset_classes"]),
+                "source": row["publisher"],
+                "link": row["url"],
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
 def metadata_health(datasets: dict[str, MarketDataset]) -> pd.DataFrame:
     rows = []
     for dataset in datasets.values():
@@ -217,7 +249,7 @@ with st.sidebar:
     )
     if st.button("Refresh briefing", width="stretch"):
         load_datasets.clear()
-        load_overnight_events.clear()
+        load_market_events.clear()
         st.rerun()
     st.markdown("---")
     st.caption("Independent project · Not investment advice")
@@ -225,7 +257,7 @@ with st.sidebar:
 
 with st.spinner("Building the source-linked overnight brief…"):
     datasets = load_datasets()
-    events = load_overnight_events()
+    events, important_events = load_market_events()
 snapshot = build_snapshot(datasets.values())
 store = load_journal_store()
 
@@ -241,12 +273,35 @@ if page == "Overnight brief":
         unsafe_allow_html=True,
     )
 
-    st.markdown("## Key overnight events")
-    if events.empty:
-        st.info("No qualifying overnight event is currently available.")
-    else:
-        for number, (_, row) in enumerate(events.iterrows(), start=1):
-            render_event(row, number)
+    st.markdown("## Market events")
+    key_tab, timeline_tab = st.tabs(
+        ["Key overnight events", "Important events · 24h"]
+    )
+    with key_tab:
+        if events.empty:
+            st.info("No qualifying overnight event is currently available.")
+        else:
+            for number, (_, row) in enumerate(events.iterrows(), start=1):
+                render_event(row, number)
+    with timeline_tab:
+        st.caption("Rolling 24 hours · distinct material stories only · newest first")
+        timeline = market_timeline_frame(important_events, events)
+        if timeline.empty:
+            st.info("No additional important event is currently available.")
+        else:
+            st.dataframe(
+                timeline,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "time": st.column_config.TextColumn("London time", width="small"),
+                    "priority": st.column_config.TextColumn("Priority", width="small"),
+                    "event": st.column_config.TextColumn("Event", width="large"),
+                    "markets": st.column_config.TextColumn("Markets", width="medium"),
+                    "source": st.column_config.TextColumn("Source", width="small"),
+                    "link": st.column_config.LinkColumn("Article", display_text="Open source"),
+                },
+            )
 
     st.markdown("## The market reaction check")
     components.html(tradingview_ticker_html(), height=92, scrolling=False)
@@ -695,7 +750,8 @@ else:
         - **Official feeds:** Federal Reserve, ECB, Bank of England and Reserve Bank of Australia releases are collected directly.
         - **News discovery:** targeted Google News RSS searches identify potentially market-moving world events and display the named publisher and source link.
         - **Free-access policy:** paywalled publishers are excluded. Events come from official feeds or a conservative list of publishers normally readable without a subscription; access can still vary by country.
-        - **Ranking:** recency, market impact and cross-asset relevance determine priority; similar headlines about one underlying story are grouped together.
+        - **Ranking:** recency, market impact and cross-asset relevance determine the five key events; similar headlines about one underlying story are grouped together.
+        - **Important-event timeline:** material stories remain visible for 24 hours even when newer headlines displace them from the five key events; lower-signal coverage is filtered out.
         - **No invented causality:** publication time and market charts must be checked before linking an event to a move.
         - **Copyright discipline:** only the headline, publisher and link are displayed; articles are not reproduced.
         """
