@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import pandas as pd
+
+
+SOURCE_CATALOG = [
+    {
+        "market": "US rates",
+        "institution": "U.S. Department of the Treasury",
+        "data": "Nominal and real par yield curves",
+        "frequency": "Daily close",
+        "integration": "Automatic",
+        "url": "https://home.treasury.gov/treasury-daily-interest-rate-xml-feed",
+        "reuse": "U.S. government data; cite Treasury and disclose calculations.",
+    },
+    {
+        "market": "USD funding",
+        "institution": "Federal Reserve Bank of New York",
+        "data": "SOFR and official reference rates",
+        "frequency": "Daily",
+        "integration": "Automatic",
+        "url": "https://markets.newyorkfed.org/static/docs/markets-api.html",
+        "reuse": "Subject to New York Fed reference-rate terms and disclaimers.",
+    },
+    {
+        "market": "Euro rates",
+        "institution": "European Central Bank",
+        "data": "Euro-area AAA government yield curve",
+        "frequency": "Daily close",
+        "integration": "Automatic",
+        "url": "https://data.ecb.europa.eu/data/datasets/YC",
+        "reuse": "ECB attribution required; preserve accuracy and disclose transformations.",
+    },
+    {
+        "market": "UK rates",
+        "institution": "Bank of England",
+        "data": "Gilt spot curves, OIS, Bank Rate and SONIA",
+        "frequency": "Daily / next business day",
+        "integration": "Automatic curve adapter",
+        "url": "https://www.bankofengland.co.uk/statistics/yield-curves",
+        "reuse": "Use BoE-owned series under stated terms; SONIA attribution applies.",
+    },
+    {
+        "market": "FX",
+        "institution": "European Central Bank",
+        "data": "Euro reference rates and derived crosses",
+        "frequency": "Daily reference fixing",
+        "integration": "Automatic",
+        "url": "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html",
+        "reuse": "Reference rates are informational, not executable prices.",
+    },
+    {
+        "market": "Credit",
+        "institution": "Federal Reserve Bank of New York",
+        "data": "Corporate Bond Market Distress Index",
+        "frequency": "Monthly",
+        "integration": "Source-linked",
+        "url": "https://www.newyorkfed.org/research/policy/cmdi",
+        "reuse": "Official stress indicator; not a substitute for a daily credit spread.",
+    },
+    {
+        "market": "Credit / systemic risk",
+        "institution": "European Central Bank",
+        "data": "Composite Indicator of Systemic Stress",
+        "frequency": "Daily",
+        "integration": "Source-linked",
+        "url": "https://data.ecb.europa.eu/data/datasets/CISS",
+        "reuse": "ECB attribution and transformation disclosure required.",
+    },
+    {
+        "market": "Corporate bonds",
+        "institution": "FINRA TRACE",
+        "data": "Reported transactions and delayed aggregates",
+        "frequency": "Intraday / delayed",
+        "integration": "Permission required",
+        "url": "https://www.finra.org/finra-data/fixed-income",
+        "reuse": "Do not redistribute until the relevant FINRA agreement is confirmed.",
+    },
+    {
+        "market": "Energy",
+        "institution": "U.S. Energy Information Administration",
+        "data": "WTI, Brent, inventories and energy balances",
+        "frequency": "Daily / weekly / monthly",
+        "integration": "Automatic with free API key",
+        "url": "https://www.eia.gov/opendata/",
+        "reuse": "U.S. government data; acknowledge EIA and review third-party exceptions.",
+    },
+    {
+        "market": "Futures positioning",
+        "institution": "Commodity Futures Trading Commission",
+        "data": "Commitments of Traders",
+        "frequency": "Weekly, Tuesday positions released Friday",
+        "integration": "Automatic",
+        "url": "https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm",
+        "reuse": "U.S. government public reporting data.",
+    },
+    {
+        "market": "US macro",
+        "institution": "Bureau of Labor Statistics",
+        "data": "CPI, payrolls and unemployment",
+        "frequency": "Monthly releases",
+        "integration": "Automatic",
+        "url": "https://www.bls.gov/developers/home.htm",
+        "reuse": "U.S. government statistics; cite BLS.",
+    },
+    {
+        "market": "UK macro",
+        "institution": "Office for National Statistics",
+        "data": "Inflation, labour, growth and release calendar",
+        "frequency": "Release calendar",
+        "integration": "Official links / RSS",
+        "url": "https://www.ons.gov.uk/releasecalendar",
+        "reuse": "Generally Open Government Licence with attribution.",
+    },
+    {
+        "market": "Euro-area macro",
+        "institution": "Eurostat",
+        "data": "Inflation, growth, labour and calendar",
+        "frequency": "Release calendar",
+        "integration": "Official links",
+        "url": "https://ec.europa.eu/eurostat/news/release-calendar",
+        "reuse": "Cite Eurostat and check identified third-party rights.",
+    },
+    {
+        "market": "Equity risk context",
+        "institution": "Index operators / TradingView widgets",
+        "data": "Provider-hosted indices and heatmaps",
+        "frequency": "Provider-labelled",
+        "integration": "Optional hosted widget",
+        "url": "https://www.tradingview.com/widget-docs/",
+        "reuse": "Keep provider attribution; do not extract and republish widget data.",
+    },
+]
+
+
+def source_catalog_frame() -> pd.DataFrame:
+    return pd.DataFrame(SOURCE_CATALOG)
+
