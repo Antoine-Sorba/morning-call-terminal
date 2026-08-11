@@ -8,6 +8,37 @@ def test_factory_uses_local_sqlite_without_a_cloud_database_url(tmp_path) -> Non
     store.close()
 
 
+def test_morning_call_history_keeps_one_entry_per_date(tmp_path) -> None:
+    store = JournalStore(tmp_path / "journal.db")
+    first_id = store.save_morning_call(
+        "2026-08-10",
+        "Initial morning call.",
+        "",
+        "",
+    )
+    store.save_morning_call(
+        "2026-08-11",
+        "The latest morning call.",
+        "",
+        "",
+    )
+    updated_id = store.save_morning_call(
+        "2026-08-10",
+        "Revised morning call.",
+        "",
+        "",
+    )
+
+    calls = store.list_morning_calls()
+    assert updated_id == first_id
+    assert len(calls) == 2
+    assert calls["call_date"].tolist() == ["2026-08-11", "2026-08-10"]
+    assert calls.loc[calls["call_date"] == "2026-08-10", "summary"].iloc[0] == (
+        "Revised morning call."
+    )
+    store.close()
+
+
 def test_pitch_journal_round_trip(tmp_path) -> None:
     store = JournalStore(tmp_path / "journal.db")
     pitch = {
