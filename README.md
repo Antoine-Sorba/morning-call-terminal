@@ -13,24 +13,22 @@ The application is deliberately **official-source first**. It does not pretend t
 
 - A maximum of five source-linked overnight events instead of an indiscriminate news feed.
 - Events from official or known free-access publishers, with paywalled publishers excluded on a best-effort basis.
-- The market or asset classes to inspect, why the event matters and a direct source link.
+- The affected asset classes and a direct source link.
 - One TradingView-hosted advanced chart with a permanent short watchlist for rates, FX, credit proxies, commodities and equities.
 - The exact TradingView instrument names and symbols to check in the same order every day.
 - Questions and possible FICC pitch angles that change with the selected overnight event.
 - Auditable official closing/reference data from Treasury, New York Fed, ECB, EIA and BLS.
-- Plain-English rates explanations and a short glossary instead of unexplained market jargon.
 - A blank morning-call workspace so the final wording and reasoning remain the user's own.
-- Five fictional client personas and six FICC trade/hedging templates.
-- Immediate feedback on pitch completeness and interview discipline; real performance is reviewed later.
-- A SQLite journal for morning calls, pitches, performance and post-trade reviews.
+- Fully manual FICC pitch entry with no pre-filled trade or recommendation.
+- A SQLite journal with dated performance updates and final post-trade reviews.
 - Raw-response caching, stale-data flags and an auditable source register.
 
 The navigation is deliberately short:
 
 1. **Overnight brief** — what happened, which market to check and the original source.
 2. **Essential charts** — a fixed TradingView routine plus questions tailored to today's event.
-3. **Today's trade pitch** — connect one verified event to a client, FICC expression and risk, then receive immediate structural feedback.
-4. **Journal** — save calls and review pitches honestly.
+3. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
+4. **Journal** — monitor each saved pitch through dated market and performance updates.
 5. **Sources** — audit data health, methodology and reuse constraints.
 
 ## Why the architecture is hybrid
@@ -87,7 +85,7 @@ Remember that UK daylight-saving time affects UTC-based schedulers.
 pytest -q
 ```
 
-The tests cover official-response parsing, free-source news filtering, event-tailored questions, plain-English explanations, pitch feedback, market calculations and the SQLite journal.
+The tests cover official-response parsing, free-source news filtering, event-tailored questions, market calculations and the SQLite journal.
 
 ## Deploy
 
@@ -106,8 +104,8 @@ For a public site, recheck each institution's current terms and do not add a dat
 - **5 minutes:** read the three-to-five ranked events and open the important source links.
 - **5 minutes:** check the same exact TradingView symbols and verify the event timing and cross-asset confirmation.
 - **5 minutes:** write the blank 60-second call in your own words.
-- **10 minutes:** link one verified event to one fictional client and FICC pitch.
-- **2 minutes:** use the immediate structure feedback, improve the pitch and save it for later performance review.
+- **10 minutes:** write one original FICC pitch with an entry, target, invalidation and time horizon.
+- **2 minutes each following day:** record the current level, performance, status and a short market update.
 
 The app should reduce searching time, but it must not automate away your judgement. That judgement is what makes the project valuable in interviews.
 
@@ -119,10 +117,7 @@ ficc_terminal/cache.py              Raw-response cache and fallback logic
 ficc_terminal/official_sources.py   Official-source adapters and parsers
 ficc_terminal/news.py               Overnight headline discovery, classification and ranking
 ficc_terminal/analytics.py          Changes, curves, ranking and themes
-ficc_terminal/briefing.py           Client personas and pitch templates
 ficc_terminal/daily_focus.py        Event-tailored questions and pitch angles
-ficc_terminal/explanations.py       Plain-English rates explanations
-ficc_terminal/feedback.py           Immediate pitch-structure feedback
 ficc_terminal/storage.py            SQLite morning-call and trade journal
 ficc_terminal/source_catalog.py     Source and reuse register
 ficc_terminal/widgets.py            Provider-hosted widget configuration
