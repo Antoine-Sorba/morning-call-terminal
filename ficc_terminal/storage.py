@@ -51,6 +51,18 @@ class JournalStore:
                 thesis_review TEXT,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS pitch_updates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pitch_id INTEGER NOT NULL,
+                update_date TEXT NOT NULL,
+                current_level TEXT,
+                performance TEXT,
+                status TEXT NOT NULL DEFAULT 'Open',
+                comment TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (pitch_id) REFERENCES pitches(id)
+            );
             """
         )
         self.connection.commit()
@@ -110,6 +122,57 @@ class JournalStore:
             "SELECT * FROM morning_calls ORDER BY call_date DESC, id DESC", self.connection
         )
 
+    def add_pitch_update(
+        self,
+        pitch_id: int,
+        *,
+        update_date: str,
+        current_level: str,
+        performance: str,
+        status: str,
+        comment: str,
+    ) -> int:
+        cursor = self.connection.execute(
+            """
+            INSERT INTO pitch_updates (
+                pitch_id, update_date, current_level, performance, status,
+                comment, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                pitch_id,
+                update_date,
+                current_level,
+                performance,
+                status,
+                comment,
+                self._now(),
+            ),
+        )
+        self.connection.execute(
+            "UPDATE pitches SET status = ?, performance = ? WHERE id = ?",
+            (status, performance, pitch_id),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def list_pitch_updates(self, pitch_id: int | None = None) -> pd.DataFrame:
+        if pitch_id is None:
+            return pd.read_sql_query(
+                "SELECT * FROM pitch_updates ORDER BY update_date DESC, id DESC",
+                self.connection,
+            )
+        return pd.read_sql_query(
+            """
+            SELECT * FROM pitch_updates
+            WHERE pitch_id = ?
+            ORDER BY update_date DESC, id DESC
+            """,
+            self.connection,
+            params=(pitch_id,),
+        )
+
     def review_pitch(
         self,
         pitch_id: int,
@@ -130,4 +193,3 @@ class JournalStore:
             (status, performance, maximum_adverse_move, catalyst_outcome, thesis_review, pitch_id),
         )
         self.connection.commit()
-
