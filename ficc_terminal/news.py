@@ -217,13 +217,6 @@ def classify_event(title: str) -> str:
     return "Cross-asset / risk sentiment"
 
 
-def _market_relevance(asset_classes: list[str]) -> str:
-    if not asset_classes:
-        return "Check whether the event changed broad risk sentiment before using it in the call."
-    joined = ", ".join(asset_classes)
-    return f"Check the reaction in {joined}; compare the move with the previous close and related assets."
-
-
 def _london_overnight_start(now_utc: datetime) -> datetime:
     london = ZoneInfo("Europe/London")
     local_now = now_utc.astimezone(london)
@@ -293,7 +286,6 @@ def rank_market_events(
         return round(recency + impact + breadth + reaction + official + free_source, 2)
 
     result["importance"] = result.apply(score, axis=1)
-    result["market_relevance"] = result["asset_classes"].map(_market_relevance)
     result["normalised_title"] = result["title"].str.lower().str.replace(r"\W+", " ", regex=True).str.strip()
     result = result.sort_values(["importance", "published"], ascending=[False, False])
     result = result.drop_duplicates("normalised_title", keep="first")
