@@ -1,4 +1,11 @@
-from ficc_terminal.storage import JournalStore
+from ficc_terminal.storage import JournalStore, create_journal_store
+
+
+def test_factory_uses_local_sqlite_without_a_cloud_database_url(tmp_path) -> None:
+    store = create_journal_store(database_url="", sqlite_path=tmp_path / "journal.db")
+    assert isinstance(store, JournalStore)
+    assert not store.persistent
+    store.close()
 
 
 def test_pitch_journal_round_trip(tmp_path) -> None:
