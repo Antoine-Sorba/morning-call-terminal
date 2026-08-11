@@ -68,9 +68,13 @@ def test_pitch_journal_round_trip(tmp_path) -> None:
         maximum_adverse_move="-8 bp",
         catalyst_outcome="The expected catalyst did not occur.",
         thesis_review="I over-weighted supply and under-weighted growth risk.",
+        closed_date="2026-08-18",
+        realized_return_pct=-1.25,
     )
     reviewed = store.list_pitches().iloc[0]
     assert reviewed["status"] == "Closed — thesis wrong"
+    assert reviewed["closed_date"] == "2026-08-18"
+    assert reviewed["realized_return_pct"] == -1.25
 
 
 def test_daily_pitch_updates_are_kept_as_history(tmp_path) -> None:
