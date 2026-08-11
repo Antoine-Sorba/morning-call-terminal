@@ -6,7 +6,7 @@ import pandas as pd
 SOURCE_CATALOG = [
     {
         "market": "Cross-asset events",
-        "institution": "Federal Reserve / ECB / Bank of England",
+        "institution": "Federal Reserve / ECB / Bank of England / Reserve Bank of Australia",
         "data": "Official announcements and press releases",
         "frequency": "As published",
         "integration": "Automatic RSS",
