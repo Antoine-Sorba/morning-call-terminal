@@ -116,6 +116,11 @@ FREE_ACCESS_PUBLISHERS = (
     "XTB",
 )
 
+# The broader timeline should remain selective. This threshold keeps official
+# releases and clearly market-moving coverage while removing lower-signal market
+# round-ups and promotional headlines.
+IMPORTANT_EVENT_SCORE = 8.5
+
 PAYWALL_MARKERS = re.compile(
     r"\b(Bloomberg|Financial Times|Wall Street Journal|WSJ|Nikkei Asia|"
     r"MarketWatch|The Times|CNBC Pro|subscription)\b",
@@ -381,16 +386,22 @@ def rank_market_events(
     *,
     now: datetime | None = None,
     limit: int = 5,
+    window_hours: int | None = None,
+    min_importance: float | None = None,
 ) -> pd.DataFrame:
     if frame.empty:
         return frame.copy()
     now_utc = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
-    overnight_start = _london_overnight_start(now_utc)
+    period_start = (
+        now_utc - timedelta(hours=window_hours)
+        if window_hours is not None
+        else _london_overnight_start(now_utc)
+    )
     result = frame.copy()
     result["published"] = pd.to_datetime(result["published"], utc=True, errors="coerce")
     result = result.dropna(subset=["published", "title", "url"])
-    result = result.loc[(result["published"] >= overnight_start) & (result["published"] <= now_utc)]
-    if result.empty:
+    result = result.loc[(result["published"] >= period_start) & (result["published"] <= now_utc)]
+    if result.empty and window_hours is None:
         fallback_start = now_utc - timedelta(hours=36)
         result = frame.copy()
         result["published"] = pd.to_datetime(result["published"], utc=True, errors="coerce")
@@ -475,6 +486,10 @@ def rank_market_events(
         )
 
     result["importance"] = result.apply(score, axis=1)
+    if min_importance is not None:
+        result = result.loc[result["importance"] >= min_importance]
+        if result.empty:
+            return result.drop(columns=["classification_text"], errors="ignore").reset_index(drop=True)
     result["story_key"] = result.apply(
         lambda row: _story_key(row["classification_text"], row["event_type"]),
         axis=1,
@@ -515,3 +530,24 @@ def rank_market_events(
         .drop(columns=["normalised_title", "classification_text"])
         .reset_index(drop=True)
     )
+
+
+def rank_important_events(
+    frame: pd.DataFrame,
+    *,
+    now: datetime | None = None,
+    hours: int = 24,
+    limit: int = 20,
+) -> pd.DataFrame:
+    """Return a concise rolling timeline of distinct, material market stories."""
+
+    ranked = rank_market_events(
+        frame,
+        now=now,
+        limit=limit,
+        window_hours=hours,
+        min_importance=IMPORTANT_EVENT_SCORE,
+    )
+    if ranked.empty:
+        return ranked
+    return ranked.sort_values("published", ascending=False).reset_index(drop=True)
