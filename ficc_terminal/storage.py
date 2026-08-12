@@ -1,10 +1,40 @@
 from __future__ import annotations
 
+import os
 import sqlite3
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+
+
+def is_streamlit_cloud_runtime(
+    *,
+    environment: Mapping[str, str] | None = None,
+    working_directory: str | Path | None = None,
+) -> bool:
+    """Identify Streamlit Community Cloud without affecting local development."""
+
+    current_environment = os.environ if environment is None else environment
+    current_directory = Path.cwd() if working_directory is None else Path(working_directory)
+    return bool(current_environment.get("STREAMLIT_SHARING_MODE")) or str(
+        current_directory
+    ).startswith("/mount/src/")
+
+
+def journal_writes_are_durable(
+    store: JournalStore | PostgresJournalStore,
+    *,
+    environment: Mapping[str, str] | None = None,
+    working_directory: str | Path | None = None,
+) -> bool:
+    """Allow local SQLite development but reject ephemeral cloud writes."""
+
+    return bool(store.persistent) or not is_streamlit_cloud_runtime(
+        environment=environment,
+        working_directory=working_directory,
+    )
 
 
 class JournalStore:
