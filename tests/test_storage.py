@@ -1,4 +1,9 @@
-from ficc_terminal.storage import JournalStore, create_journal_store
+from ficc_terminal.storage import (
+    JournalStore,
+    create_journal_store,
+    is_streamlit_cloud_runtime,
+    journal_writes_are_durable,
+)
 
 
 def test_factory_uses_local_sqlite_without_a_cloud_database_url(tmp_path) -> None:
@@ -35,6 +40,60 @@ def test_morning_call_history_keeps_one_entry_per_date(tmp_path) -> None:
     assert calls["call_date"].tolist() == ["2026-08-11", "2026-08-10"]
     assert calls.loc[calls["call_date"] == "2026-08-10", "summary"].iloc[0] == (
         "Revised morning call."
+    )
+    store.close()
+
+
+def test_morning_calls_and_positions_survive_store_restart(tmp_path) -> None:
+    database = tmp_path / "journal.db"
+    first = JournalStore(database)
+    first.save_morning_call("2026-08-11", "Yesterday's morning call.", "", "")
+    first.save_pitch(
+        {
+            "client": "Macro hedge fund",
+            "trade": "Pay US 10Y",
+            "market_view": "Yields may rise.",
+            "instrument": "Pay fixed in ten-year swaps.",
+        },
+        "2026-08-11",
+    )
+    first.close()
+
+    restarted = JournalStore(database)
+    assert restarted.list_morning_calls().iloc[0]["summary"] == (
+        "Yesterday's morning call."
+    )
+    assert restarted.list_pitches().iloc[0]["trade"] == "Pay US 10Y"
+    restarted.close()
+
+
+def test_cloud_runtime_rejects_ephemeral_sqlite_writes(tmp_path) -> None:
+    store = JournalStore(tmp_path / "journal.db")
+    environment = {"STREAMLIT_SHARING_MODE": "true"}
+
+    assert is_streamlit_cloud_runtime(
+        environment=environment,
+        working_directory="/workspace/project",
+    )
+    assert not journal_writes_are_durable(
+        store,
+        environment=environment,
+        working_directory="/workspace/project",
+    )
+    store.close()
+
+
+def test_local_sqlite_writes_remain_available_for_development(tmp_path) -> None:
+    store = JournalStore(tmp_path / "journal.db")
+
+    assert not is_streamlit_cloud_runtime(
+        environment={},
+        working_directory="/workspace/project",
+    )
+    assert journal_writes_are_durable(
+        store,
+        environment={},
+        working_directory="/workspace/project",
     )
     store.close()
 

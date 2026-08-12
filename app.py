@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import hmac
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,7 +34,12 @@ from ficc_terminal.official_sources import (
     fetch_us_treasury_curve,
 )
 from ficc_terminal.source_catalog import source_catalog_frame
-from ficc_terminal.storage import JournalStore, PostgresJournalStore
+from ficc_terminal.storage import (
+    JournalStore,
+    PostgresJournalStore,
+    is_streamlit_cloud_runtime,
+    journal_writes_are_durable,
+)
 from ficc_terminal.widgets import (
     ESSENTIAL_MARKETS,
     tradingview_chart_url,
@@ -128,7 +134,22 @@ def configured_database_url() -> str:
     if environment_url:
         return environment_url
     try:
-        return str(st.secrets.get("DATABASE_URL", "")).strip()
+        direct_url = str(st.secrets.get("DATABASE_URL", "")).strip()
+        if direct_url:
+            return direct_url
+        connections = st.secrets.get("connections", {})
+        postgresql = connections.get("postgresql", {})
+        return str(postgresql.get("url", "")).strip()
+    except Exception:
+        return ""
+
+
+def configured_editor_password() -> str:
+    environment_password = os.getenv("EDITOR_PASSWORD", "").strip()
+    if environment_password:
+        return environment_password
+    try:
+        return str(st.secrets.get("EDITOR_PASSWORD", "")).strip()
     except Exception:
         return ""
 
@@ -142,7 +163,14 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
     """
 
     database_url = configured_database_url()
-    journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, database_url)
+    try:
+        journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, database_url)
+    except Exception:
+        st.error(
+            "The persistent journal database could not be reached. "
+            "Check DATABASE_URL in the Streamlit app secrets, then reboot the app."
+        )
+        st.stop()
     if all(hasattr(journal, method) for method in REQUIRED_JOURNAL_METHODS):
         return journal
     if hasattr(journal, "close"):
@@ -159,6 +187,48 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
             "Refresh the page once to finish loading the latest controls."
         )
     return journal
+
+
+def render_editor_access(
+    store: JournalStore | PostgresJournalStore,
+) -> bool:
+    """Keep the hosted journal public to read and private to edit."""
+
+    if not is_streamlit_cloud_runtime():
+        return True
+    if not journal_writes_are_durable(store):
+        st.error("Persistent journal storage is not connected.")
+        st.caption("Add DATABASE_URL in the app secrets before publishing new entries.")
+        return False
+
+    editor_password = configured_editor_password()
+    if not editor_password:
+        st.error("Owner access is not configured.")
+        st.caption("Add EDITOR_PASSWORD in the app secrets to enable journal editing.")
+        return False
+
+    if st.session_state.get("editor_authenticated", False):
+        st.success("Owner editing enabled")
+        if st.button("Lock owner editing", width="stretch"):
+            st.session_state["editor_authenticated"] = False
+            st.rerun()
+        return True
+
+    with st.expander("Owner access"):
+        password = st.text_input(
+            "Password",
+            type="password",
+            key="editor_password_input",
+        )
+        if st.button("Unlock editing", width="stretch"):
+            if hmac.compare_digest(password, editor_password):
+                st.session_state["editor_authenticated"] = True
+                st.session_state.pop("editor_password_error", None)
+                st.rerun()
+            st.session_state["editor_password_error"] = True
+        if st.session_state.get("editor_password_error", False):
+            st.error("Incorrect password.")
+    return False
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -344,7 +414,10 @@ def render_public_morning_call_history(calls: pd.DataFrame) -> None:
 def render_morning_call_editor(
     calls: pd.DataFrame,
     store: JournalStore | PostgresJournalStore,
+    editing_enabled: bool,
 ) -> None:
+    if not editing_enabled:
+        return
     st.markdown("## Your 60-second morning call")
     with st.expander("Write or edit a morning call"):
         call_options: list[str | int] = ["new"]
@@ -566,6 +639,8 @@ with st.spinner("Building the source-linked overnight brief…"):
     events, important_events = load_market_events()
 snapshot = build_snapshot(datasets.values())
 store = load_journal_store()
+with st.sidebar:
+    editing_enabled = render_editor_access(store)
 
 
 if page == "Overnight brief":
@@ -628,7 +703,7 @@ if page == "Overnight brief":
         with column:
             show_move(label, row, context)
 
-    render_morning_call_editor(calls, store)
+    render_morning_call_editor(calls, store, editing_enabled)
 
 
 elif page == "Essential charts":
@@ -801,7 +876,13 @@ elif page == "Today's trade pitch":
         main_risk = st.text_area("Main risks", height=80)
         client_relevance = st.text_area("Client relevance", height=80)
         closing_question = st.text_input("Client question")
-        submitted = st.form_submit_button("Save pitch to journal")
+        submitted = st.form_submit_button(
+            "Save pitch to journal",
+            disabled=not editing_enabled,
+        )
+
+    if not editing_enabled:
+        st.info("Owner access is required to save a pitch. Published positions remain visible in the Journal.")
 
     if submitted:
         if not client or not trade_name.strip() or not market_view.strip() or not instrument.strip():
@@ -965,7 +1046,10 @@ elif page == "Journal":
                         "Client question",
                         value=field_text(selected["closing_question"]),
                     )
-                    edit_submitted = st.form_submit_button("Save position changes")
+                    edit_submitted = st.form_submit_button(
+                        "Save position changes",
+                        disabled=not editing_enabled,
+                    )
                 if edit_submitted:
                     if not edit_trade.strip() or not edit_view.strip() or not edit_instrument.strip():
                         st.warning(
@@ -1008,7 +1092,10 @@ elif page == "Journal":
                             performance = st.text_input("Performance since entry")
                         update_status = st.selectbox("Status", ["Open", "Monitoring"])
                         update_comment = st.text_area("Market update", height=90)
-                        update_submitted = st.form_submit_button("Save market update")
+                        update_submitted = st.form_submit_button(
+                            "Save market update",
+                            disabled=not editing_enabled,
+                        )
                     if update_submitted:
                         store.add_pitch_update(
                             pitch_id,
@@ -1097,7 +1184,10 @@ elif page == "Journal":
                         value=field_text(selected.get("thesis_review")),
                         height=120,
                     )
-                    reviewed = st.form_submit_button("Close position")
+                    reviewed = st.form_submit_button(
+                        "Close position",
+                        disabled=not editing_enabled,
+                    )
                 if reviewed:
                     try:
                         parsed_return = float(
@@ -1130,7 +1220,7 @@ elif page == "Journal":
                 )
                 if st.button(
                     "Permanently delete position",
-                    disabled=not delete_confirmed,
+                    disabled=not delete_confirmed or not editing_enabled,
                     key=f"delete_pitch_{pitch_id}",
                 ):
                     try:

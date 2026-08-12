@@ -68,16 +68,20 @@ EIA_API_KEY=your_key_here
 Never commit `.env` or an API key to GitHub.
 
 To keep saved morning calls, pitches and performance updates across Streamlit
-Cloud restarts and redeployments, add a PostgreSQL connection string to the
-deployment secrets:
+Cloud restarts and redeployments, add a remote PostgreSQL connection string and
+an owner password to the deployment secrets:
 
 ```toml
 DATABASE_URL = "postgresql://user:password@host:5432/database?sslmode=require"
+EDITOR_PASSWORD = "choose-a-long-private-password"
 ```
 
-Without `DATABASE_URL`, the app uses local SQLite for development. The Journal
-page also provides a JSON backup download, but local SQLite alone is not durable
-on Streamlit Community Cloud.
+The password unlocks editing only for the owner while keeping published morning
+calls and journal positions readable by recruiters. Without `DATABASE_URL`, the
+app uses local SQLite for development. On Streamlit Community Cloud, journal
+writes are disabled when the remote database is absent because Community Cloud
+does not guarantee persistence for local files. The Journal page also provides
+a JSON backup download.
 
 ## Refresh data without opening the website
 
@@ -109,7 +113,8 @@ The simplest public deployment is Streamlit Community Cloud:
 2. Connect the repository at <https://share.streamlit.io/>.
 3. Set `app.py` as the entry point.
 4. Add `EIA_API_KEY` in the deployment's secrets rather than the repository.
-5. Add `DATABASE_URL` to Streamlit secrets if the public journal must persist.
+5. Add `DATABASE_URL` and `EDITOR_PASSWORD` to Streamlit secrets so published
+   journal entries persist and only the owner can edit them.
 
 For a public site, recheck each institution's current terms and do not add a data series merely because it is technically downloadable.
 
