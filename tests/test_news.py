@@ -7,6 +7,7 @@ from ficc_terminal.news import (
     parse_news_feed,
     precise_headline,
     rank_important_events,
+    rank_key_events,
     rank_market_events,
 )
 
@@ -213,13 +214,12 @@ def test_important_timeline_keeps_an_earlier_material_story_without_noise() -> N
     )
     now = datetime(2026, 8, 11, 18, 0, tzinfo=timezone.utc)
 
-    key_events = rank_market_events(frame, now=now, limit=5)
+    key_events = rank_key_events(frame, now=now, limit=5)
     timeline = rank_important_events(frame, now=now, limit=20)
 
     earlier_story = stories[0][1]
     noise = stories[-1][1]
-    assert len(key_events) == 5
-    assert earlier_story not in key_events["title"].tolist()
+    assert all("earnings" not in title.lower() for title in key_events["title"])
     assert earlier_story in timeline["title"].tolist()
     assert noise not in timeline["title"].tolist()
     assert timeline["story_key"].nunique() == len(timeline)
@@ -253,3 +253,127 @@ def test_important_timeline_uses_a_strict_rolling_24_hour_window() -> None:
     )
 
     assert timeline["title"].tolist() == ["Oil jumps after unexpected supply disruption"]
+
+
+def test_key_events_favour_major_older_release_over_recent_market_noise() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "published": "2026-08-11T22:00:00Z",
+                "title": "US CPI rises 0.4%, above forecasts as core inflation accelerates",
+                "url": "https://example.com/cpi",
+                "publisher": "Reuters",
+                "feed": "Major macro releases",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-12T18:00:00Z",
+                "stale": False,
+            },
+            {
+                "published": "2026-08-12T17:50:00Z",
+                "title": "New Zealand stocks edge slightly higher in cautious trading",
+                "url": "https://example.com/minor",
+                "publisher": "TradingView",
+                "feed": "Cross-asset reaction",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-12T18:00:00Z",
+                "stale": False,
+            },
+            {
+                "published": "2026-08-12T17:45:00Z",
+                "title": "US Treasury yields rise ahead of inflation data",
+                "url": "https://example.com/preview",
+                "publisher": "Reuters",
+                "feed": "Cross-asset reaction",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-12T18:00:00Z",
+                "stale": False,
+            },
+        ]
+    )
+
+    ranked = rank_key_events(
+        frame,
+        now=datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc),
+    )
+
+    assert ranked["title"].tolist() == [
+        "US CPI rises 0.4%, above forecasts as core inflation accelerates"
+    ]
+
+
+def test_key_events_group_duplicate_coverage_and_reward_confirmation() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "published": published,
+                "title": title,
+                "url": f"https://example.com/{index}",
+                "publisher": publisher,
+                "feed": "Energy and supply",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-12T08:00:00Z",
+                "stale": False,
+            }
+            for index, (published, title, publisher) in enumerate(
+                [
+                    (
+                        "2026-08-12T06:30:00Z",
+                        "Oil jumps after attack disrupts shipping through Hormuz",
+                        "Reuters",
+                    ),
+                    (
+                        "2026-08-12T06:35:00Z",
+                        "Hormuz shipping disrupted after attack sends oil surging",
+                        "BBC",
+                    ),
+                ]
+            )
+        ]
+    )
+
+    ranked = rank_key_events(
+        frame,
+        now=datetime(2026, 8, 12, 8, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(ranked) == 1
+    assert ranked.iloc[0]["story_key"] == "middle_east_energy"
+    assert ranked.iloc[0]["source_count"] == 2
+
+
+def test_official_release_is_displayed_for_a_confirmed_macro_story() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "published": "2026-08-12T12:30:00Z",
+                "title": "CPI for all items increases 0.4% in July; shelter rises",
+                "summary": "",
+                "url": "https://www.bls.gov/news.release/cpi.nr0.htm",
+                "publisher": "BLS Consumer Price Index",
+                "feed": "BLS Consumer Price Index",
+                "source_type": "Official",
+                "retrieved_at": "2026-08-12T13:00:00Z",
+                "stale": False,
+            },
+            {
+                "published": "2026-08-12T12:35:00Z",
+                "title": "Gold jumps after US inflation surprises markets",
+                "summary": "",
+                "url": "https://example.com/reaction",
+                "publisher": "Reuters",
+                "feed": "Cross-asset reaction",
+                "source_type": "News discovery",
+                "retrieved_at": "2026-08-12T13:00:00Z",
+                "stale": False,
+            },
+        ]
+    )
+
+    ranked = rank_key_events(
+        frame,
+        now=datetime(2026, 8, 12, 13, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(ranked) == 1
+    assert ranked.iloc[0]["source_type"] == "Official"
+    assert ranked.iloc[0]["publisher"] == "BLS Consumer Price Index"

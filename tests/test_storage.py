@@ -1,8 +1,13 @@
+import pytest
+
 from ficc_terminal.storage import (
     JournalStore,
     create_journal_store,
+    database_url_from_parts,
     is_streamlit_cloud_runtime,
     journal_writes_are_durable,
+    normalise_database_url,
+    safe_database_error,
 )
 
 
@@ -11,6 +16,53 @@ def test_factory_uses_local_sqlite_without_a_cloud_database_url(tmp_path) -> Non
     assert isinstance(store, JournalStore)
     assert not store.persistent
     store.close()
+
+
+def test_database_url_accepts_provider_copy_formats() -> None:
+    copied_command = (
+        "psql 'postgresql://journal_owner:secret@db.example.net:5432/"
+        "journal?sslmode=require'"
+    )
+    sqlalchemy_url = (
+        "postgresql+psycopg://journal_owner:secret@db.example.net:5432/"
+        "journal?sslmode=require"
+    )
+
+    expected = (
+        "postgresql://journal_owner:secret@db.example.net:5432/"
+        "journal?sslmode=require"
+    )
+    assert normalise_database_url(copied_command) == expected
+    assert normalise_database_url(sqlalchemy_url) == expected
+
+
+def test_database_url_can_be_built_from_streamlit_connection_fields() -> None:
+    database_url = database_url_from_parts(
+        {
+            "host": "db.example.net",
+            "port": "5432",
+            "database": "journal",
+            "username": "journal owner",
+            "password": "a:b@c",
+            "sslmode": "require",
+        }
+    )
+
+    assert database_url == (
+        "postgresql://journal%20owner:a%3Ab%40c@db.example.net:5432/"
+        "journal?sslmode=require"
+    )
+
+
+def test_database_url_rejects_placeholder_credentials_safely() -> None:
+    with pytest.raises(ValueError):
+        normalise_database_url(
+            "postgresql://your-user:your-password@host.example/database"
+        )
+
+    message = safe_database_error(ValueError("secret details must not be shown"))
+    assert "complete PostgreSQL connection string" in message
+    assert "secret details" not in message
 
 
 def test_morning_call_history_keeps_one_entry_per_date(tmp_path) -> None:

@@ -27,7 +27,7 @@ The application is deliberately **official-source first**. It does not pretend t
 
 The navigation is deliberately short:
 
-1. **Overnight brief** — five key events plus a concise 24-hour timeline so an earlier material story remains visible as new headlines arrive.
+1. **Overnight brief** — up to five high-conviction, distinct events from the rolling 24 hours plus a concise timeline so an earlier material story remains visible as new headlines arrive.
 2. **Essential charts** — native official-data history, a fixed market routine, direct live-chart links and one key check tailored to today's event.
 3. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
 4. **Journal** — scan a concise positions table, click a row for the full transaction, edit or monitor it, then record a structured close-out and review the resulting track record.
@@ -40,8 +40,8 @@ Official institutions provide reliable curves, reference rates, macroeconomic da
 The project therefore uses:
 
 - **Python-controlled official data:** Treasury, New York Fed, ECB, Bank of England, EIA, CFTC and BLS.
-- **Official announcement feeds:** Federal Reserve, ECB, Bank of England and Reserve Bank of Australia RSS.
-- **News discovery:** targeted Google News RSS searches, limited to headlines, named free-access publishers and source links. Discovery is not treated as proof of causality.
+- **Official announcement feeds:** Federal Reserve, ECB, Bank of England, Reserve Bank of Australia, BLS and BEA RSS.
+- **Event discovery:** targeted searches for policy decisions, macro releases, geopolitical shocks, energy disruptions, financial stress and confirmed cross-asset reactions, limited to headlines, named free-access publishers and source links. Discovery is not treated as proof of causality.
 - **Direct provider links:** exact TradingView symbols open outside the app, avoiding third-party embed failures while retaining a repeatable live-market routine.
 - **Human judgement:** the final explanation, opinion and FICC pitch.
 
@@ -81,7 +81,11 @@ calls and journal positions readable by recruiters. Without `DATABASE_URL`, the
 app uses local SQLite for development. On Streamlit Community Cloud, journal
 writes are disabled when the remote database is absent because Community Cloud
 does not guarantee persistence for local files. The Journal page also provides
-a JSON backup download.
+a JSON backup download. The app also accepts a provider-copied
+`psql 'postgresql://…'` command, a `postgresql+psycopg://…` URL, or Streamlit
+`[connections.postgresql]` fields. If a remote connection fails, the public
+dashboard remains available while journal editing stays locked and a safe
+configuration diagnosis is shown.
 
 ## Refresh data without opening the website
 

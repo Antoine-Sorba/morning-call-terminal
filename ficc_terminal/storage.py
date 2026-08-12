@@ -1,12 +1,117 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 
 import pandas as pd
+
+
+def normalise_database_url(value: str) -> str:
+    """Accept common PostgreSQL/Neon copy formats and return a psycopg DSN."""
+
+    database_url = str(value or "").strip()
+    if not database_url:
+        return ""
+    if database_url.lower().startswith("psql "):
+        database_url = database_url[5:].strip()
+    database_url = database_url.strip("'\" ")
+    database_url = re.sub(
+        r"^postgresql\+(?:psycopg|psycopg2)://",
+        "postgresql://",
+        database_url,
+        flags=re.IGNORECASE,
+    )
+    if database_url.startswith("postgres://"):
+        database_url = "postgresql://" + database_url[len("postgres://") :]
+
+    parsed = urlsplit(database_url)
+    placeholder_values = {
+        "user", "username", "password", "host", "database", "dbname",
+        "your-user", "your-username", "your-password", "your-host",
+        "your-database", "example.com",
+    }
+    components = {
+        str(parsed.username or "").lower(),
+        str(parsed.password or "").lower(),
+        str(parsed.hostname or "").lower(),
+        str(parsed.path or "").strip("/").lower(),
+    }
+    placeholder = bool(components & placeholder_values) or bool(
+        re.search(r"[<>{}]", database_url)
+    )
+    if (
+        parsed.scheme != "postgresql"
+        or not parsed.hostname
+        or not parsed.username
+        or not parsed.path.strip("/")
+        or placeholder
+    ):
+        raise ValueError(
+            "DATABASE_URL must be the complete PostgreSQL connection string copied "
+            "from the database provider."
+        )
+    return database_url
+
+
+def database_url_from_parts(settings: Mapping[str, object]) -> str:
+    """Build a PostgreSQL URL from Streamlit's documented connection fields."""
+
+    direct_url = str(settings.get("url", "") or "").strip()
+    if direct_url:
+        return normalise_database_url(direct_url)
+
+    username = str(settings.get("username", settings.get("user", "")) or "").strip()
+    password = str(settings.get("password", "") or "")
+    host = str(settings.get("host", "") or "").strip()
+    port = str(settings.get("port", "5432") or "5432").strip()
+    database = str(settings.get("database", settings.get("dbname", "")) or "").strip()
+    if not any((username, password, host, database)):
+        return ""
+    if not all((username, password, host, port, database)):
+        raise ValueError(
+            "The PostgreSQL secret needs host, port, database, username and password."
+        )
+    sslmode = str(settings.get("sslmode", "require") or "require").strip()
+    return normalise_database_url(
+        "postgresql://"
+        f"{quote(username, safe='')}:{quote(password, safe='')}@{host}:{port}/"
+        f"{quote(database, safe='')}?sslmode={quote(sslmode, safe='')}"
+    )
+
+
+def safe_database_error(error: Exception) -> str:
+    """Translate connection failures without exposing credentials or host details."""
+
+    message = str(error).lower()
+    if isinstance(error, ValueError) or "invalid dsn" in message:
+        return (
+            "The database secret is not a complete PostgreSQL connection string. "
+            "Copy the value beginning postgresql:// from your database provider."
+        )
+    if "password authentication failed" in message or "authentication failed" in message:
+        return (
+            "The database rejected the username or password. Copy a fresh connection "
+            "string from your database provider and update DATABASE_URL."
+        )
+    if any(term in message for term in ("name or service not known", "could not translate host", "nodename nor servname")):
+        return (
+            "The database hostname could not be found. Copy the complete connection "
+            "string again, including the provider hostname."
+        )
+    if any(term in message for term in ("timeout", "timed out", "connection refused", "network is unreachable")):
+        return (
+            "The database did not accept the connection. Confirm that the database "
+            "project is active and that the connection string requires SSL."
+        )
+    return (
+        "The database connection failed. Copy a fresh PostgreSQL connection string "
+        "from the provider, update DATABASE_URL, and reboot the app."
+    )
 
 
 def is_streamlit_cloud_runtime(
@@ -671,6 +776,7 @@ def create_journal_store(
     database_url: str = "",
     sqlite_path: str | Path = "data/ficc_terminal.db",
 ) -> JournalStore | PostgresJournalStore:
-    if database_url.strip():
-        return PostgresJournalStore(database_url.strip())
+    normalised_url = normalise_database_url(database_url)
+    if normalised_url:
+        return PostgresJournalStore(normalised_url)
     return JournalStore(sqlite_path)

@@ -24,7 +24,7 @@ from ficc_terminal.journal import (
     performance_summary,
 )
 from ficc_terminal.models import MarketDataset
-from ficc_terminal.news import fetch_market_news, rank_important_events, rank_market_events
+from ficc_terminal.news import fetch_market_news, rank_important_events, rank_key_events
 from ficc_terminal.official_sources import (
     fetch_bls_macro,
     fetch_ecb_fx,
@@ -37,8 +37,11 @@ from ficc_terminal.source_catalog import source_catalog_frame
 from ficc_terminal.storage import (
     JournalStore,
     PostgresJournalStore,
+    database_url_from_parts,
     is_streamlit_cloud_runtime,
     journal_writes_are_durable,
+    normalise_database_url,
+    safe_database_error,
 )
 from ficc_terminal.widgets import (
     ESSENTIAL_MARKETS,
@@ -132,15 +135,15 @@ def get_journal_store_v8(
 def configured_database_url() -> str:
     environment_url = os.getenv("DATABASE_URL", "").strip()
     if environment_url:
-        return environment_url
+        return normalise_database_url(environment_url)
     try:
         direct_url = str(st.secrets.get("DATABASE_URL", "")).strip()
         if direct_url:
-            return direct_url
+            return normalise_database_url(direct_url)
         connections = st.secrets.get("connections", {})
         postgresql = connections.get("postgresql", {})
-        return str(postgresql.get("url", "")).strip()
-    except Exception:
+        return database_url_from_parts(postgresql)
+    except (FileNotFoundError, KeyError):
         return ""
 
 
@@ -162,15 +165,18 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
     instead of repeatedly raising AttributeError errors.
     """
 
-    database_url = configured_database_url()
+    database_url = ""
     try:
+        database_url = configured_database_url()
         journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, database_url)
-    except Exception:
-        st.error(
-            "The persistent journal database could not be reached. "
-            "Check DATABASE_URL in the Streamlit app secrets, then reboot the app."
+        st.session_state.pop("journal_connection_issue", None)
+    except Exception as error:
+        st.session_state["journal_connection_issue"] = safe_database_error(error)
+        journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, "")
+        st.warning(
+            "Published journal entries are temporarily unavailable while the "
+            "database connection is corrected. The rest of the dashboard remains online."
         )
-        st.stop()
     if all(hasattr(journal, method) for method in REQUIRED_JOURNAL_METHODS):
         return journal
     if hasattr(journal, "close"):
@@ -197,8 +203,9 @@ def render_editor_access(
     if not is_streamlit_cloud_runtime():
         return True
     if not journal_writes_are_durable(store):
-        st.error("Persistent journal storage is not connected.")
-        st.caption("Add DATABASE_URL in the app secrets before publishing new entries.")
+        connection_issue = st.session_state.get("journal_connection_issue", "")
+        st.error(connection_issue or "Persistent journal storage is not connected.")
+        st.caption("Journal editing stays locked until permanent storage is connected.")
         return False
 
     editor_password = configured_editor_password()
@@ -264,7 +271,7 @@ def load_datasets() -> dict[str, MarketDataset]:
 def load_market_events() -> tuple[pd.DataFrame, pd.DataFrame]:
     raw = fetch_market_news(get_client())
     return (
-        rank_market_events(raw, limit=5),
+        rank_key_events(raw, limit=5),
         rank_important_events(raw, hours=24, limit=20),
     )
 
@@ -662,12 +669,16 @@ if page == "Overnight brief":
 
     st.markdown("## Market events")
     key_tab, timeline_tab = st.tabs(
-        ["Key overnight events", "Important events · 24h"]
+        ["Top market-moving events · 24h", "Important events · 24h"]
     )
     with key_tab:
         if events.empty:
-            st.info("No qualifying overnight event is currently available.")
+            st.info("No event currently meets the key-event materiality threshold.")
         else:
+            st.caption(
+                "Ranked by realised event materiality, source quality, independent "
+                "confirmation and cross-asset relevance—not recency alone."
+            )
             for number, (_, row) in enumerate(events.iterrows(), start=1):
                 render_event(row, number)
     with timeline_tab:
@@ -1248,10 +1259,11 @@ else:
     st.markdown("### How the overnight events are selected")
     st.markdown(
         """
-        - **Official feeds:** Federal Reserve, ECB, Bank of England and Reserve Bank of Australia releases are collected directly.
-        - **News discovery:** targeted Google News RSS searches identify potentially market-moving world events and display the named publisher and source link.
+        - **Official feeds:** Federal Reserve, ECB, Bank of England, Reserve Bank of Australia, U.S. Bureau of Labor Statistics and U.S. Bureau of Economic Analysis releases are collected directly.
+        - **Event discovery:** separate searches monitor central-bank decisions, major macro data, geopolitical shocks, government policy, energy disruptions, credit stress and confirmed cross-asset reactions.
         - **Free-access policy:** paywalled publishers are excluded. Events come from official feeds or a conservative list of publishers normally readable without a subscription; access can still vary by country.
-        - **Ranking:** recency, market impact and cross-asset relevance determine the five key events; similar headlines about one underlying story are grouped together.
+        - **Top-event ranking:** realised event materiality, source quality, independent-publisher confirmation and cross-asset relevance determine up to five events from a rolling 24-hour window. Recency is a minor input; previews, routine market round-ups, low-volatility headlines and single-company earnings receive strong penalties.
+        - **Story diversity:** duplicate coverage is grouped into one underlying story, and the selection limits repeated exposure to one asset class. If fewer than five stories clear the threshold, the app shows fewer rather than adding noise.
         - **Important-event timeline:** material stories remain visible for 24 hours even when newer headlines displace them from the five key events; lower-signal coverage is filtered out.
         - **No invented causality:** publication time and market charts must be checked before linking an event to a move.
         - **Copyright discipline:** only the headline, publisher and link are displayed; articles are not reproduced.
