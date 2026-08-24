@@ -1226,6 +1226,10 @@ elif page == "Journal":
                     )
 
             with st.expander("Close position and record outcome"):
+                if not editing_enabled:
+                    st.info(
+                        "Unlock Owner access in the sidebar to close this position."
+                    )
                 current_status = field_text(selected.get("status"))
                 final_status_index = (
                     list(CLOSED_PITCH_STATUSES).index(current_status)
@@ -1262,9 +1266,13 @@ elif page == "Journal":
                         )
                     with close_right:
                         realized_return = st.text_input(
-                            "Realised return (%)",
+                            "Realised return (%) — required",
                             value=return_text,
                             placeholder="e.g. +1.50 or -0.75",
+                            help=(
+                                "Enter the percentage return as a number. It is used "
+                                "in the Journal performance figures."
+                            ),
                         )
                     maximum_adverse_move = st.text_input(
                         "Maximum adverse movement",
@@ -1279,30 +1287,56 @@ elif page == "Journal":
                         value=field_text(selected.get("thesis_review")),
                         height=120,
                     )
+                    outcome_chart = st.file_uploader(
+                        "Trade outcome chart (optional)",
+                        type=["png", "jpg", "jpeg", "webp"],
+                        help=(
+                            "Upload a screenshot showing the entry, exit and market "
+                            "move. It will appear in the public trade detail. Maximum 5 MB."
+                        ),
+                    )
                     reviewed = st.form_submit_button(
-                        "Close position",
+                        "Close position and save outcome",
                         disabled=not editing_enabled,
                     )
                 if reviewed:
-                    try:
-                        parsed_return = float(
-                            realized_return.strip().replace("%", "").replace(",", ".")
-                        )
-                    except ValueError:
-                        st.warning("Enter the realised return as a number, such as 1.50 or -0.75.")
+                    chart_bytes = (
+                        outcome_chart.getvalue()
+                        if outcome_chart is not None
+                        else None
+                    )
+                    if chart_bytes is not None and len(chart_bytes) > 5 * 1024 * 1024:
+                        st.warning("The trade outcome chart must be smaller than 5 MB.")
                     else:
-                        store.review_pitch(
-                            pitch_id,
-                            status=final_status,
-                            performance=field_text(selected.get("performance")),
-                            maximum_adverse_move=maximum_adverse_move,
-                            catalyst_outcome=catalyst_outcome,
-                            thesis_review=thesis_review,
-                            closed_date=str(close_date),
-                            realized_return_pct=parsed_return,
-                        )
-                        st.session_state["pitch_review_saved"] = True
-                        st.rerun()
+                        try:
+                            parsed_return = float(
+                                realized_return.strip().replace("%", "").replace(",", ".")
+                            )
+                        except ValueError:
+                            st.warning(
+                                "Enter the realised return as a number, such as "
+                                "1.50 or -0.75."
+                            )
+                        else:
+                            store.review_pitch(
+                                pitch_id,
+                                status=final_status,
+                                performance=field_text(selected.get("performance")),
+                                maximum_adverse_move=maximum_adverse_move,
+                                catalyst_outcome=catalyst_outcome,
+                                thesis_review=thesis_review,
+                                closed_date=str(close_date),
+                                realized_return_pct=parsed_return,
+                            )
+                            if chart_bytes is not None and outcome_chart is not None:
+                                store.save_pitch_image(
+                                    pitch_id,
+                                    image_data=chart_bytes,
+                                    mime_type=outcome_chart.type or "image/png",
+                                    file_name=Path(outcome_chart.name).name,
+                                )
+                            st.session_state["pitch_review_saved"] = True
+                            st.rerun()
 
             with st.expander("Delete this position"):
                 st.warning(
