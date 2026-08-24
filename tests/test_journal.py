@@ -57,10 +57,8 @@ def test_positions_table_is_concise_and_uses_the_position_taken() -> None:
         "Entry",
         "Status",
         "Return (%)",
-        "View",
     ]
     assert positions.iloc[0]["Position"] == "Buy USD/JPY"
-    assert positions.iloc[0]["View"] == "View details →"
 
 
 def test_closed_pitch_performance_and_summary() -> None:

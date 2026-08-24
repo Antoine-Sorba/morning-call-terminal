@@ -24,16 +24,7 @@ WEAK_PITCH_STATUSES = {
 
 
 def build_positions_table(pitches: pd.DataFrame) -> pd.DataFrame:
-    columns = [
-        "id",
-        "Date",
-        "Position",
-        "Product",
-        "Entry",
-        "Status",
-        "Return (%)",
-        "View",
-    ]
+    columns = ["id", "Date", "Position", "Product", "Entry", "Status", "Return (%)"]
     if pitches.empty:
         return pd.DataFrame(columns=columns)
 
@@ -44,7 +35,6 @@ def build_positions_table(pitches: pd.DataFrame) -> pd.DataFrame:
         else pd.Series(index=frame.index, dtype=float)
     )
     frame["Return (%)"] = pd.to_numeric(recorded_returns, errors="coerce")
-    frame["View"] = "View details →"
     frame = frame.rename(
         columns={
             "pitch_date": "Date",

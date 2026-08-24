@@ -961,43 +961,51 @@ elif page == "Journal":
     if st.session_state.pop("pitch_deleted", False):
         st.success("Position and its monitoring history deleted.")
     render_pitch_performance(pitches)
-    st.markdown("## Positions — select a trade to view the full pitch")
+    st.markdown("## Positions")
     if pitches.empty:
         st.info("No positions recorded yet.")
     else:
-        st.info(
-            "Select any row below to open the thesis, catalyst, risk, monitoring "
-            "history and final outcome."
-        )
+        st.caption("Use View trade to open the full pitch, monitoring history and outcome.")
         positions = build_positions_table(pitches)
-        table_selection = st.dataframe(
-            positions,
-            width="stretch",
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            key="positions_table",
-            column_config={
-                "id": None,
-                "Date": st.column_config.TextColumn("Date", width="small"),
-                "Position": st.column_config.TextColumn("Position taken", width="large"),
-                "Product": st.column_config.TextColumn("Product", width="small"),
-                "Entry": st.column_config.TextColumn("Entry", width="small"),
-                "Status": st.column_config.TextColumn("Status", width="medium"),
-                "Return (%)": st.column_config.NumberColumn(
-                    "Return",
-                    format="%.2f%%",
-                    width="small",
-                ),
-                "View": st.column_config.TextColumn("Trade detail", width="small"),
-            },
-        )
-        selected_rows = table_selection.selection.rows
-        if not selected_rows:
-            st.caption("No trade selected yet.")
+        header_columns = st.columns([1.1, 3.2, 1.35, 1.15, 1.45, 1.15])
+        for column, label in zip(
+            header_columns,
+            ["Date", "Position taken", "Product", "Entry", "Status", ""],
+        ):
+            if label:
+                column.markdown(f"**{label}**")
+
+        for _, position in positions.iterrows():
+            position_id = int(position["id"])
+            with st.container(border=True):
+                row_columns = st.columns([1.1, 3.2, 1.35, 1.15, 1.45, 1.15])
+                row_columns[0].write(field_text(position["Date"]) or "—")
+                row_columns[1].write(field_text(position["Position"]) or "—")
+                row_columns[2].write(field_text(position["Product"]) or "—")
+                row_columns[3].write(field_text(position["Entry"]) or "—")
+                row_columns[4].write(field_text(position["Status"]) or "Open")
+                if row_columns[5].button(
+                    "View trade",
+                    key=f"view_pitch_{position_id}",
+                    type=(
+                        "primary"
+                        if st.session_state.get("selected_pitch_id") == position_id
+                        else "secondary"
+                    ),
+                    width="stretch",
+                ):
+                    st.session_state["selected_pitch_id"] = position_id
+
+        available_pitch_ids = set(positions["id"].astype(int).tolist())
+        pitch_id = st.session_state.get("selected_pitch_id")
+        if pitch_id not in available_pitch_ids:
+            st.session_state.pop("selected_pitch_id", None)
+            pitch_id = None
+
+        if pitch_id is None:
+            st.info("Select View trade to open a position.")
         else:
-            selected_table_row = positions.iloc[selected_rows[0]]
-            pitch_id = int(selected_table_row["id"])
+            pitch_id = int(pitch_id)
             selected = pitches.loc[pitches["id"] == pitch_id].iloc[0]
             is_closed = field_text(selected.get("status")) in CLOSED_PITCH_STATUSES
 
@@ -1011,7 +1019,15 @@ elif page == "Journal":
                 if st.session_state.pop(state_key, False):
                     st.success(message)
 
-            st.markdown("## Selected trade · full detail")
+            detail_heading, detail_close = st.columns([5, 1])
+            detail_heading.markdown("## Trade detail")
+            if detail_close.button(
+                "Close detail",
+                key=f"close_pitch_detail_{pitch_id}",
+                width="stretch",
+            ):
+                st.session_state.pop("selected_pitch_id", None)
+                st.rerun()
             render_position_detail(selected)
             trade_image = store.get_pitch_image(pitch_id)
             render_trade_outcome_chart(trade_image)
