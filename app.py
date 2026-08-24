@@ -106,21 +106,24 @@ def get_client() -> OfficialHttpClient:
     return OfficialHttpClient(cache_dir=Path("data/raw"), timeout=15)
 
 
-JOURNAL_SCHEMA_VERSION = 8
+JOURNAL_SCHEMA_VERSION = 9
 REQUIRED_JOURNAL_METHODS = (
     "add_pitch_update",
+    "delete_pitch_image",
+    "get_pitch_image",
     "list_pitch_updates",
     "list_morning_calls",
     "list_pitches",
     "review_pitch",
     "save_morning_call",
     "save_pitch",
+    "save_pitch_image",
     "update_pitch",
 )
 
 
 @st.cache_resource
-def get_journal_store_v8(
+def get_journal_store_v9(
     schema_version: int,
     database_url: str,
 ) -> JournalStore | PostgresJournalStore:
@@ -168,11 +171,11 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
     database_url = ""
     try:
         database_url = configured_database_url()
-        journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, database_url)
+        journal = get_journal_store_v9(JOURNAL_SCHEMA_VERSION, database_url)
         st.session_state.pop("journal_connection_issue", None)
     except Exception as error:
         st.session_state["journal_connection_issue"] = safe_database_error(error)
-        journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, "")
+        journal = get_journal_store_v9(JOURNAL_SCHEMA_VERSION, "")
         st.warning(
             "Published journal entries are temporarily unavailable while the "
             "database connection is corrected. The rest of the dashboard remains online."
@@ -181,11 +184,11 @@ def load_journal_store() -> JournalStore | PostgresJournalStore:
         return journal
     if hasattr(journal, "close"):
         journal.close()
-    get_journal_store_v8.clear()
+    get_journal_store_v9.clear()
     importlib.invalidate_caches()
     storage_module = importlib.import_module("ficc_terminal.storage")
     importlib.reload(storage_module)
-    journal = get_journal_store_v8(JOURNAL_SCHEMA_VERSION, database_url)
+    journal = get_journal_store_v9(JOURNAL_SCHEMA_VERSION, database_url)
     missing = [method for method in REQUIRED_JOURNAL_METHODS if not hasattr(journal, method)]
     if missing:
         st.warning(
@@ -578,6 +581,23 @@ def render_position_detail(selected: pd.Series) -> None:
             st.write(field_text(selected.get("main_risk")))
 
 
+def render_trade_outcome_chart(image: dict[str, object] | None) -> None:
+    if not image:
+        return
+
+    image_data = image.get("image_data")
+    if image_data is None:
+        return
+
+    st.markdown("#### Trade outcome chart")
+    st.caption("Saved with this completed position")
+    st.image(
+        bytes(image_data),
+        caption=field_text(image.get("file_name")) or "Entry-to-exit chart",
+        width="stretch",
+    )
+
+
 def market_timeline_frame(
     timeline: pd.DataFrame,
     key_events: pd.DataFrame,
@@ -941,10 +961,14 @@ elif page == "Journal":
     if st.session_state.pop("pitch_deleted", False):
         st.success("Position and its monitoring history deleted.")
     render_pitch_performance(pitches)
-    st.markdown("## Positions")
+    st.markdown("## Positions — select a trade to view the full pitch")
     if pitches.empty:
         st.info("No positions recorded yet.")
     else:
+        st.info(
+            "Select any row below to open the thesis, catalyst, risk, monitoring "
+            "history and final outcome."
+        )
         positions = build_positions_table(pitches)
         table_selection = st.dataframe(
             positions,
@@ -965,25 +989,70 @@ elif page == "Journal":
                     format="%.2f%%",
                     width="small",
                 ),
+                "View": st.column_config.TextColumn("Trade detail", width="small"),
             },
         )
         selected_rows = table_selection.selection.rows
         if not selected_rows:
-            st.caption("Click a position in the table to open its full detail and controls.")
+            st.caption("No trade selected yet.")
         else:
             selected_table_row = positions.iloc[selected_rows[0]]
             pitch_id = int(selected_table_row["id"])
             selected = pitches.loc[pitches["id"] == pitch_id].iloc[0]
+            is_closed = field_text(selected.get("status")) in CLOSED_PITCH_STATUSES
 
             for state_key, message in (
                 ("pitch_edit_saved", "Position updated."),
                 ("pitch_update_saved", "Market update saved."),
                 ("pitch_review_saved", "Position closed and performance recorded."),
+                ("pitch_image_saved", "Trade outcome chart saved."),
+                ("pitch_image_deleted", "Trade outcome chart removed."),
             ):
                 if st.session_state.pop(state_key, False):
                     st.success(message)
 
+            st.markdown("## Selected trade · full detail")
             render_position_detail(selected)
+            trade_image = store.get_pitch_image(pitch_id)
+            render_trade_outcome_chart(trade_image)
+
+            if is_closed and editing_enabled:
+                with st.expander("Add or replace the trade outcome chart"):
+                    st.caption(
+                        "Upload a clean chart showing the entry, exit and market move. "
+                        "It will be visible to recruiters inside this trade's detail."
+                    )
+                    uploaded_chart = st.file_uploader(
+                        "Chart image",
+                        type=["png", "jpg", "jpeg", "webp"],
+                        key=f"pitch_chart_upload_{pitch_id}",
+                        help="PNG, JPEG or WebP; maximum 5 MB.",
+                    )
+                    if uploaded_chart is not None:
+                        chart_bytes = uploaded_chart.getvalue()
+                        if len(chart_bytes) > 5 * 1024 * 1024:
+                            st.error("The chart must be smaller than 5 MB.")
+                        else:
+                            st.image(chart_bytes, caption="Preview", width="stretch")
+                            if st.button(
+                                "Save chart to this trade",
+                                key=f"save_pitch_chart_{pitch_id}",
+                            ):
+                                store.save_pitch_image(
+                                    pitch_id,
+                                    image_data=chart_bytes,
+                                    mime_type=uploaded_chart.type or "image/png",
+                                    file_name=Path(uploaded_chart.name).name,
+                                )
+                                st.session_state["pitch_image_saved"] = True
+                                st.rerun()
+                    if trade_image and st.button(
+                        "Remove saved chart",
+                        key=f"remove_pitch_chart_{pitch_id}",
+                    ):
+                        store.delete_pitch_image(pitch_id)
+                        st.session_state["pitch_image_deleted"] = True
+                        st.rerun()
 
             with st.expander("Edit this position"):
                 with st.form(f"edit_pitch_{pitch_id}"):
@@ -1090,7 +1159,6 @@ elif page == "Journal":
                         st.session_state["pitch_edit_saved"] = True
                         st.rerun()
 
-            is_closed = field_text(selected.get("status")) in CLOSED_PITCH_STATUSES
             if not is_closed:
                 with st.expander("Add a monitoring update"):
                     with st.form(f"performance_update_{pitch_id}", clear_on_submit=True):

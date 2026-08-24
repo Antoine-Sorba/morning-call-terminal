@@ -282,6 +282,69 @@ def test_pitch_can_be_deleted_with_its_monitoring_history(tmp_path) -> None:
     store.close()
 
 
+def test_completed_pitch_chart_is_saved_replaced_and_deleted(tmp_path) -> None:
+    store = JournalStore(tmp_path / "journal.db")
+    pitch_id = store.save_pitch(
+        {
+            "client": "Macro hedge fund",
+            "trade": "Long gold",
+            "market_view": "Real yields may fall.",
+            "instrument": "Buy gold futures.",
+        },
+        "2026-08-11",
+    )
+
+    store.save_pitch_image(
+        pitch_id,
+        image_data=b"first-image",
+        mime_type="image/png",
+        file_name="gold-entry.png",
+    )
+    saved = store.get_pitch_image(pitch_id)
+    assert saved is not None
+    assert saved["image_data"] == b"first-image"
+    assert saved["file_name"] == "gold-entry.png"
+
+    store.save_pitch_image(
+        pitch_id,
+        image_data=b"replacement-image",
+        mime_type="image/jpeg",
+        file_name="gold-outcome.jpg",
+    )
+    replaced = store.get_pitch_image(pitch_id)
+    assert replaced is not None
+    assert replaced["image_data"] == b"replacement-image"
+    assert replaced["mime_type"] == "image/jpeg"
+
+    assert store.delete_pitch_image(pitch_id)
+    assert store.get_pitch_image(pitch_id) is None
+    assert not store.delete_pitch_image(pitch_id)
+    store.close()
+
+
+def test_deleting_pitch_also_deletes_saved_chart(tmp_path) -> None:
+    store = JournalStore(tmp_path / "journal.db")
+    pitch_id = store.save_pitch(
+        {
+            "client": "Asset manager",
+            "trade": "Receive US 2Y",
+            "market_view": "Policy expectations may ease.",
+            "instrument": "Receive two-year swaps.",
+        },
+        "2026-08-11",
+    )
+    store.save_pitch_image(
+        pitch_id,
+        image_data=b"chart",
+        mime_type="image/png",
+        file_name="rates-chart.png",
+    )
+
+    assert store.delete_pitch(pitch_id)
+    assert store.get_pitch_image(pitch_id) is None
+    store.close()
+
+
 def test_two_store_instances_can_write_without_locking(tmp_path) -> None:
     database = tmp_path / "journal.db"
     first = JournalStore(database)

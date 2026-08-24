@@ -213,6 +213,15 @@ class JournalStore:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (pitch_id) REFERENCES pitches(id)
             );
+
+            CREATE TABLE IF NOT EXISTS pitch_images (
+                pitch_id INTEGER PRIMARY KEY,
+                image_data BLOB NOT NULL,
+                mime_type TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                uploaded_at TEXT NOT NULL,
+                FOREIGN KEY (pitch_id) REFERENCES pitches(id) ON DELETE CASCADE
+            );
             """
         )
         pitch_columns = {
@@ -335,11 +344,57 @@ class JournalStore:
 
     def delete_pitch(self, pitch_id: int) -> bool:
         self.connection.execute(
+            "DELETE FROM pitch_images WHERE pitch_id = ?",
+            (pitch_id,),
+        )
+        self.connection.execute(
             "DELETE FROM pitch_updates WHERE pitch_id = ?",
             (pitch_id,),
         )
         cursor = self.connection.execute(
             "DELETE FROM pitches WHERE id = ?",
+            (pitch_id,),
+        )
+        self.connection.commit()
+        return cursor.rowcount == 1
+
+    def save_pitch_image(
+        self,
+        pitch_id: int,
+        *,
+        image_data: bytes,
+        mime_type: str,
+        file_name: str,
+    ) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO pitch_images (
+                pitch_id, image_data, mime_type, file_name, uploaded_at
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(pitch_id) DO UPDATE SET
+                image_data = excluded.image_data,
+                mime_type = excluded.mime_type,
+                file_name = excluded.file_name,
+                uploaded_at = excluded.uploaded_at
+            """,
+            (pitch_id, image_data, mime_type, file_name, self._now()),
+        )
+        self.connection.commit()
+
+    def get_pitch_image(self, pitch_id: int) -> dict[str, object] | None:
+        row = self.connection.execute(
+            """
+            SELECT pitch_id, image_data, mime_type, file_name, uploaded_at
+            FROM pitch_images
+            WHERE pitch_id = ?
+            """,
+            (pitch_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def delete_pitch_image(self, pitch_id: int) -> bool:
+        cursor = self.connection.execute(
+            "DELETE FROM pitch_images WHERE pitch_id = ?",
             (pitch_id,),
         )
         self.connection.commit()
@@ -523,6 +578,15 @@ class PostgresJournalStore:
                 created_at TEXT NOT NULL
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS pitch_images (
+                pitch_id BIGINT PRIMARY KEY REFERENCES pitches(id) ON DELETE CASCADE,
+                image_data BYTEA NOT NULL,
+                mime_type TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                uploaded_at TEXT NOT NULL
+            )
+            """,
             "ALTER TABLE pitches ADD COLUMN IF NOT EXISTS closed_date TEXT",
             (
                 "ALTER TABLE pitches ADD COLUMN IF NOT EXISTS "
@@ -663,11 +727,62 @@ class PostgresJournalStore:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
+                    "DELETE FROM pitch_images WHERE pitch_id = %s",
+                    (pitch_id,),
+                )
+                cursor.execute(
                     "DELETE FROM pitch_updates WHERE pitch_id = %s",
                     (pitch_id,),
                 )
                 cursor.execute(
                     "DELETE FROM pitches WHERE id = %s",
+                    (pitch_id,),
+                )
+                return cursor.rowcount == 1
+
+    def save_pitch_image(
+        self,
+        pitch_id: int,
+        *,
+        image_data: bytes,
+        mime_type: str,
+        file_name: str,
+    ) -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO pitch_images (
+                        pitch_id, image_data, mime_type, file_name, uploaded_at
+                    ) VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT(pitch_id) DO UPDATE SET
+                        image_data = EXCLUDED.image_data,
+                        mime_type = EXCLUDED.mime_type,
+                        file_name = EXCLUDED.file_name,
+                        uploaded_at = EXCLUDED.uploaded_at
+                    """,
+                    (pitch_id, image_data, mime_type, file_name, self._now()),
+                )
+
+    def get_pitch_image(self, pitch_id: int) -> dict[str, object] | None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT pitch_id, image_data, mime_type, file_name, uploaded_at
+                    FROM pitch_images
+                    WHERE pitch_id = %s
+                    """,
+                    (pitch_id,),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row is not None else None
+
+    def delete_pitch_image(self, pitch_id: int) -> bool:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM pitch_images WHERE pitch_id = %s",
                     (pitch_id,),
                 )
                 return cursor.rowcount == 1
