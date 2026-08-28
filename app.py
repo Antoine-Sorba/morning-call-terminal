@@ -84,6 +84,7 @@ st.markdown(
     .chart-fallback { min-height:330px; display:flex; flex-direction:column; justify-content:center; background:#fffef9; border:1px solid #d6dad1; border-radius:.5rem; padding:2.25rem; }
     .chart-fallback-title { font:500 2rem/1.15 Georgia,serif; color:#123f32; margin-bottom:.75rem; }
     .chart-fallback-copy { color:#657169; max-width:620px; }
+    #selected-trade-detail { scroll-margin-top:4rem; }
     div[data-testid="stMetric"] { background:#fffef9; border:1px solid #d6dad1; padding:.85rem; }
     div[data-testid="stMetric"] label { color:#617067; }
     [data-testid="stLinkButton"] a { border-color:#123f32; }
@@ -307,6 +308,36 @@ def event_label(row: pd.Series) -> str:
 
 def field_text(value: object) -> str:
     return "" if value is None or pd.isna(value) else str(value)
+
+
+def scroll_to_parent_element(element_id: str) -> None:
+    """Smoothly reveal an element in Streamlit's parent document once it is mounted."""
+
+    safe_element_id = json.dumps(element_id)
+    st.html(
+        f"""
+        <script>
+        (() => {{
+          let attempts = 0;
+          const reveal = () => {{
+            attempts += 1;
+            try {{
+              const target = document.getElementById({safe_element_id});
+              if (target) {{
+                target.scrollIntoView({{ behavior: "smooth", block: "start" }});
+                return;
+              }}
+            }} catch (error) {{
+              return;
+            }}
+            if (attempts < 20) window.setTimeout(reveal, 100);
+          }};
+          window.setTimeout(reveal, 150);
+        }})();
+        </script>
+        """,
+        unsafe_allow_javascript=True,
+    )
 
 
 def journal_backup_json(
@@ -852,6 +883,7 @@ elif page == "Journal":
                     width="stretch",
                 ):
                     st.session_state["selected_pitch_id"] = position_id
+                    st.session_state["scroll_to_pitch_id"] = position_id
 
         available_pitch_ids = set(positions["id"].astype(int).tolist())
         pitch_id = st.session_state.get("selected_pitch_id")
@@ -865,6 +897,9 @@ elif page == "Journal":
             pitch_id = int(pitch_id)
             selected = pitches.loc[pitches["id"] == pitch_id].iloc[0]
             is_closed = field_text(selected.get("status")) in CLOSED_PITCH_STATUSES
+            should_scroll_to_detail = (
+                st.session_state.pop("scroll_to_pitch_id", None) == pitch_id
+            )
 
             for state_key, message in (
                 ("pitch_edit_saved", "Position updated."),
@@ -876,8 +911,12 @@ elif page == "Journal":
                 if st.session_state.pop(state_key, False):
                     st.success(message)
 
+            st.markdown(
+                '<div id="selected-trade-detail"></div>',
+                unsafe_allow_html=True,
+            )
             detail_heading, detail_close = st.columns([5, 1])
-            detail_heading.markdown("## Trade detail")
+            detail_heading.markdown("## Selected trade · full detail")
             if detail_close.button(
                 "Close detail",
                 key=f"close_pitch_detail_{pitch_id}",
@@ -885,6 +924,10 @@ elif page == "Journal":
             ):
                 st.session_state.pop("selected_pitch_id", None)
                 st.rerun()
+            st.caption(
+                "The complete position, thesis, catalyst, levels, risks and recorded "
+                "outcome are shown below."
+            )
             render_position_detail(selected)
             trade_image = store.get_pitch_image(pitch_id)
             render_trade_outcome_chart(trade_image)
@@ -1219,6 +1262,9 @@ elif page == "Journal":
                     st.error(
                         "The position could not be deleted. Refresh the journal and try again."
                     )
+
+            if should_scroll_to_detail:
+                scroll_to_parent_element("selected-trade-detail")
 
 st.markdown("---")
 st.caption(
