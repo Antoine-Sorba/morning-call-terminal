@@ -15,8 +15,6 @@ from dotenv import load_dotenv
 
 from ficc_terminal.analytics import build_snapshot
 from ficc_terminal.cache import OfficialHttpClient
-from ficc_terminal.charts import build_essential_chart
-from ficc_terminal.daily_focus import build_daily_focus
 from ficc_terminal.journal import (
     CLOSED_PITCH_STATUSES,
     build_closed_performance,
@@ -33,7 +31,6 @@ from ficc_terminal.official_sources import (
     fetch_sofr,
     fetch_us_treasury_curve,
 )
-from ficc_terminal.source_catalog import source_catalog_frame
 from ficc_terminal.storage import (
     JournalStore,
     PostgresJournalStore,
@@ -42,10 +39,6 @@ from ficc_terminal.storage import (
     journal_writes_are_durable,
     normalise_database_url,
     safe_database_error,
-)
-from ficc_terminal.widgets import (
-    ESSENTIAL_MARKETS,
-    tradingview_chart_url,
 )
 
 
@@ -627,30 +620,12 @@ def market_timeline_frame(
     return pd.DataFrame(rows, columns=columns)
 
 
-def metadata_health(datasets: dict[str, MarketDataset]) -> pd.DataFrame:
-    rows = []
-    for dataset in datasets.values():
-        rows.append(
-            {
-                "dataset": dataset.metadata.series_name,
-                "institution": dataset.metadata.source_name,
-                "status": dataset.status_label(),
-                "latest observation": dataset.latest_date,
-                "retrieved": dataset.metadata.retrieved_at,
-                "frequency": dataset.metadata.frequency,
-                "transformation": dataset.metadata.transformation,
-                "message": dataset.error or "",
-            }
-        )
-    return pd.DataFrame(rows)
-
-
 with st.sidebar:
     st.markdown(f"## {APP_NAME}")
     st.caption("Daily markets and trade-pitch workflow")
     page = st.radio(
         "Navigation",
-        ["Overnight brief", "Essential charts", "Today's trade pitch", "Journal", "Sources"],
+        ["Overnight brief", "Today's trade pitch", "Journal"],
         label_visibility="collapsed",
     )
     if st.button("Refresh briefing", width="stretch"):
@@ -735,124 +710,6 @@ if page == "Overnight brief":
             show_move(label, row, context)
 
     render_morning_call_editor(calls, store, editing_enabled)
-
-
-elif page == "Essential charts":
-    st.markdown(
-        """
-        <div class="hero">
-          <div class="hero-kicker">One chart at a time</div>
-          <div class="hero-title">The essential cross-asset screen</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    asset_class = st.radio(
-        "Asset class",
-        list(ESSENTIAL_MARKETS),
-        horizontal=True,
-    )
-    guide = ESSENTIAL_MARKETS[asset_class]
-    left, right = st.columns([0.34, 0.66])
-    with left:
-        st.markdown("### Your fixed daily watchlist")
-        st.caption("These stay the same every day. Search the exact code in TradingView and check them in this order.")
-        for number, indicator in enumerate(guide["indicators"], start=1):
-            st.markdown(f"**{number}. {indicator['name']}**")
-            st.code(indicator["symbol"], language=None)
-            st.caption(indicator["why"])
-        if asset_class == "Credit":
-            st.markdown(
-                '<div class="warning-box"><strong>Credit data boundary</strong><br>Free daily CDS indices and institutional spreads are licensed. Use HYG and LQD only as price proxies, CMDI/CISS for official stress, and a licensed terminal for executable spreads.</div>',
-                unsafe_allow_html=True,
-            )
-    with right:
-        official_chart = build_essential_chart(asset_class, datasets)
-        if official_chart is not None:
-            st.plotly_chart(
-                official_chart.figure,
-                width="stretch",
-                config={"displayModeBar": False, "scrollZoom": False},
-            )
-            st.caption(f"{official_chart.source_name} · {official_chart.note}")
-            st.link_button("Open official chart source", official_chart.source_url)
-        else:
-            st.markdown(
-                """
-                <div class="chart-fallback">
-                  <div class="chart-fallback-title">Open the live market chart directly</div>
-                  <div class="chart-fallback-copy">This public dashboard does not embed third-party pricing scripts. Select an instrument below to open its current or delayed chart in TradingView.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        live_instrument = st.selectbox(
-            "Live chart to open",
-            guide["indicators"],
-            format_func=lambda indicator: f"{indicator['name']} · {indicator['symbol']}",
-            key=f"live_chart_{asset_class}",
-        )
-        st.link_button(
-            f"Open {live_instrument['symbol']} in TradingView",
-            tradingview_chart_url(live_instrument["symbol"]),
-            width="stretch",
-        )
-
-    st.markdown("### Today's event and questions")
-    if events.empty:
-        focus_title = "The overnight market backdrop"
-        focus_assets: list[str] = []
-        st.info("No qualifying free-access event was found. Use the fixed routine without assigning a cause.")
-    else:
-        focus_title = st.selectbox("Event to investigate", events["display_title"].tolist())
-        focus_event = events.loc[events["display_title"] == focus_title].iloc[0]
-        focus_assets = list(focus_event["asset_classes"])
-        st.caption(f"{focus_event['publisher']} · {', '.join(focus_assets)}")
-        st.link_button("Open today's free source", focus_event["url"])
-    focus = build_daily_focus(
-        event_title=focus_title,
-        event_assets=focus_assets,
-        asset_class=asset_class,
-        indicator_names=[indicator["name"] for indicator in guide["indicators"]],
-    )
-    question_column, angle_column = st.columns(2)
-    with question_column:
-        st.markdown("#### Main market check")
-        st.write(focus["watch"])
-    with angle_column:
-        st.markdown("#### FICC angle")
-        st.write(focus["pitch_angle"])
-
-    st.markdown("### Primary sources to confirm the story")
-    source_links = {
-        "Rates": [
-            ("US Treasury", "https://home.treasury.gov/resource-center/data-chart-center/interest-rates"),
-            ("ECB yield curves", "https://data.ecb.europa.eu/data/datasets/YC"),
-            ("Bank of England", "https://www.bankofengland.co.uk/statistics/yield-curves"),
-        ],
-        "FX": [
-            ("ECB reference rates", "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html"),
-            ("Japan MOF FX", "https://www.mof.go.jp/english/policy/international_policy/reference/feio/index.htm"),
-        ],
-        "Credit": [
-            ("New York Fed CMDI", "https://www.newyorkfed.org/research/policy/cmdi"),
-            ("ECB CISS", "https://data.ecb.europa.eu/data/datasets/CISS"),
-            ("FINRA fixed income", "https://www.finra.org/finra-data/fixed-income"),
-        ],
-        "Commodities": [
-            ("EIA", "https://www.eia.gov/"),
-            ("CFTC positioning", "https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm"),
-        ],
-        "Equities": [
-            ("TradingView market data", "https://www.tradingview.com/markets/"),
-        ],
-    }
-    source_columns = st.columns(len(source_links[asset_class]))
-    for column, (label, url) in zip(source_columns, source_links[asset_class]):
-        with column:
-            st.link_button(label, url, width="stretch")
-
 
 elif page == "Today's trade pitch":
     st.markdown(
@@ -1362,66 +1219,6 @@ elif page == "Journal":
                     st.error(
                         "The position could not be deleted. Refresh the journal and try again."
                     )
-
-
-else:
-    st.markdown(
-        """
-        <div class="hero">
-          <div class="hero-kicker">Auditability before automation</div>
-          <div class="hero-title">Sources and methodology</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown("### How the overnight events are selected")
-    st.markdown(
-        """
-        - **Official feeds:** Federal Reserve, ECB, Bank of England, Reserve Bank of Australia, U.S. Bureau of Labor Statistics and U.S. Bureau of Economic Analysis releases are collected directly.
-        - **Event discovery:** separate searches monitor central-bank decisions, major macro data, geopolitical shocks, government policy, energy disruptions, credit stress and confirmed cross-asset reactions.
-        - **Free-access policy:** paywalled publishers are excluded. Events come from official feeds or a conservative list of publishers normally readable without a subscription; access can still vary by country.
-        - **Top-event ranking:** realised event materiality, source quality, independent-publisher confirmation and cross-asset relevance determine up to five events from a rolling 24-hour window. Recency is a minor input; previews, routine market round-ups, low-volatility headlines and single-company earnings receive strong penalties.
-        - **Story diversity:** duplicate coverage is grouped into one underlying story, and the selection limits repeated exposure to one asset class. If fewer than five stories clear the threshold, the app shows fewer rather than adding noise.
-        - **Important-event timeline:** material stories remain visible for 24 hours even when newer headlines displace them from the five key events; lower-signal coverage is filtered out.
-        - **No invented causality:** publication time and market charts must be checked before linking an event to a move.
-        - **Copyright discipline:** only the headline, publisher and link are displayed; articles are not reproduced.
-        """
-    )
-    st.markdown("### Data health")
-    health = metadata_health(datasets)
-    if not health.empty:
-        st.dataframe(health, width="stretch", hide_index=True)
-
-    st.markdown("### Journal storage")
-    if store.persistent:
-        st.success("Saved calls, pitches and performance updates use persistent PostgreSQL storage.")
-    else:
-        st.warning(
-            "This deployment is using local SQLite. Add DATABASE_URL to Streamlit secrets "
-            "before relying on the journal across app restarts or redeployments."
-        )
-
-    st.markdown("### Source register")
-    catalog = source_catalog_frame()
-    st.dataframe(
-        catalog,
-        width="stretch",
-        hide_index=True,
-        column_config={"url": st.column_config.LinkColumn("Official page", display_text="Open source")},
-    )
-    st.markdown("### Official calendars")
-    calendars = [
-        ("Federal Reserve", "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"),
-        ("ECB", "https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html"),
-        ("BLS", "https://www.bls.gov/schedule/"),
-        ("ONS", "https://www.ons.gov.uk/releasecalendar"),
-        ("Eurostat", "https://ec.europa.eu/eurostat/news/release-calendar"),
-    ]
-    columns = st.columns(len(calendars))
-    for column, (label, url) in zip(columns, calendars):
-        with column:
-            st.link_button(label, url, width="stretch")
-
 
 st.markdown("---")
 st.caption(

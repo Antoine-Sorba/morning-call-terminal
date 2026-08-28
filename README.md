@@ -14,24 +14,19 @@ The application is deliberately **official-source first**. It does not pretend t
 - Five key market stories plus a rolling 24-hour timeline of other important events, with duplicate coverage of the same underlying story grouped together.
 - Events from official or known free-access publishers, with paywalled publishers excluded on a best-effort basis.
 - The affected asset classes and a direct source link.
-- Native Plotly charts built from official rates, FX and energy history, with recruiter-safe direct TradingView links for live or delayed market charts.
-- The exact TradingView instrument names and symbols to check in the same order every day.
-- One concise market check and one possible FICC angle for the selected event.
 - Auditable official closing/reference data from Treasury, New York Fed, ECB, EIA and BLS.
 - A blank morning-call workspace so the final wording and reasoning remain the user's own.
 - A visitor-facing latest morning call, with earlier calls available one date at a time in an optional archive and editing kept in a collapsed first-page workspace.
 - Fully manual FICC pitch entry with no pre-filled trade or recommendation.
 - A concise, row-selectable positions journal with editable transaction detail, confirmed deletion, dated monitoring updates and structured close-out reviews.
 - A closed-trade track record showing pitch hit rate, profitable-position rate, average realised return and every recorded outcome.
-- Raw-response caching, stale-data flags and an auditable source register.
+- Raw-response caching and stale-data flags.
 
 The navigation is deliberately short:
 
 1. **Overnight brief** — up to five high-conviction, distinct events from the rolling 24 hours plus a concise timeline so an earlier material story remains visible as new headlines arrive.
-2. **Essential charts** — native official-data history, a fixed market routine, direct live-chart links and one key check tailored to today's event.
-3. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
-4. **Journal** — scan a concise positions table, click a row for the full transaction, edit or monitor it, then record a structured close-out and review the resulting track record.
-5. **Sources** — audit data health, methodology and reuse constraints.
+2. **Today's trade pitch** — write and save an original FICC pitch using blank fields.
+3. **Journal** — scan a concise positions table, open a trade for the full transaction, edit or monitor it, then record a structured close-out and review the resulting track record.
 
 ## Why the architecture is hybrid
 
