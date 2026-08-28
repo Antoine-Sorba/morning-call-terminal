@@ -310,7 +310,7 @@ def field_text(value: object) -> str:
     return "" if value is None or pd.isna(value) else str(value)
 
 
-def scroll_to_parent_element(element_id: str) -> None:
+def scroll_to_parent_element(element_id: str, request_id: int) -> None:
     """Smoothly reveal an element in Streamlit's parent document once it is mounted."""
 
     safe_element_id = json.dumps(element_id)
@@ -318,12 +318,14 @@ def scroll_to_parent_element(element_id: str) -> None:
         f"""
         <script>
         (() => {{
+          const requestId = {request_id};
           let attempts = 0;
           const reveal = () => {{
             attempts += 1;
             try {{
               const target = document.getElementById({safe_element_id});
               if (target) {{
+                target.dataset.lastScrollRequest = String(requestId);
                 target.scrollIntoView({{ behavior: "smooth", block: "start" }});
                 return;
               }}
@@ -884,6 +886,9 @@ elif page == "Journal":
                 ):
                     st.session_state["selected_pitch_id"] = position_id
                     st.session_state["scroll_to_pitch_id"] = position_id
+                    st.session_state["trade_scroll_request_id"] = (
+                        int(st.session_state.get("trade_scroll_request_id", 0)) + 1
+                    )
 
         available_pitch_ids = set(positions["id"].astype(int).tolist())
         pitch_id = st.session_state.get("selected_pitch_id")
@@ -899,6 +904,9 @@ elif page == "Journal":
             is_closed = field_text(selected.get("status")) in CLOSED_PITCH_STATUSES
             should_scroll_to_detail = (
                 st.session_state.pop("scroll_to_pitch_id", None) == pitch_id
+            )
+            scroll_request_id = int(
+                st.session_state.get("trade_scroll_request_id", 0)
             )
 
             for state_key, message in (
@@ -1264,7 +1272,10 @@ elif page == "Journal":
                     )
 
             if should_scroll_to_detail:
-                scroll_to_parent_element("selected-trade-detail")
+                scroll_to_parent_element(
+                    "selected-trade-detail",
+                    request_id=scroll_request_id,
+                )
 
 st.markdown("---")
 st.caption(
